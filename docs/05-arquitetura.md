@@ -452,12 +452,20 @@ class Handoff(BaseModel):
     payload: dict                    # relatório tipado serializado
 
 class Resolution(BaseModel):
+    """O que o AGENTE decidiu — cru, antes de qualquer verificação."""
     decision: Literal["orientar", "agir", "escalar"]
     justification: str
     evidence_cited: list[EvidenceRef]
     unverified: list[str]
     action_taken: str | None
     confirmation_requested: bool
+
+class Delivered(BaseModel):
+    """O que foi ENTREGUE ao solicitante — depois do guardrail (RF44)."""
+    decision: Literal["orientar", "agir", "escalar"]
+    guardrail_verdict: Literal["pass", "blocked"]
+    guardrail_failed_checks: list[Literal["V1", "V2", "V3"]] = []
+    guardrail_reason: str | None = None
 
 class ExecutionTrace(BaseModel):
     run_id: str
@@ -474,7 +482,8 @@ class ExecutionTrace(BaseModel):
     # execução
     steps: list[TraceStep]
     handoffs: list[Handoff]
-    resolution: Resolution | None
+    resolution: Resolution | None      # decisão do agente
+    delivered: Delivered | None        # decisão entregue — RF44
     stop_reason: Literal["sufficient","max_steps","error","budget"]
     duration_ms: float
     tokens_in: int
@@ -630,6 +639,35 @@ capacidade hipotética no README, não se paga.
 
 **Alternativa descartada.** Adotar MCP desde o início — custo antecipado de uma camada de depuração
 para uma propriedade que o projeto não requer.
+
+---
+
+### ADR-13 — Defesa em camadas: três mecanismos, três momentos
+
+**Contexto.** A segurança do agente estava apoiada em dois mecanismos — composição por `tier` e
+instrução em prompt. Faltava a pergunta: *e se o agente produzir uma resolução com evidência
+inventada?* Nada no caminho de saída impediria a entrega.
+
+**Decisão.** Três mecanismos, em momentos distintos, com garantias distintas:
+
+| Mecanismo | Quando age | Garantia | Custo |
+| :--- | :--- | :--- | :--- |
+| **Composição por `tier`** | **antes** | determinística — a tool não existe no schema | zero |
+| **Instrução no prompt** | **durante** | probabilística — o modelo pode ignorar | zero |
+| **Guardrail (RF44)** | **depois** | determinística — mas o erro já aconteceu | ~1 ms |
+
+**Consequências.** ✅ Nenhum mecanismo isolado precisa ser perfeito. ✅ Cada camada pega o que a
+anterior deixou passar, e sabe-se **o que cada uma não pega**. ✅ O guardrail é gratuito e
+reprodutível — pode rodar em produção e no experimento sem alterar custo.
+❌ O guardrail age tarde: quando ele dispara, a investigação já consumiu cota.
+
+**O juiz LLM fica fora das três camadas** — ele mede, não protege. Ver RF44.
+
+**Quarta camada, registrada como evolução:** um agente de **verificação adversarial** antes de ações
+de impacto — instruído a refutar a conclusão em vez de confirmá-la. Probabilístico como a instrução
+em prompt, mas **independente** do primeiro julgamento, o que o torna complementar. Fora do ciclo
+atual por custo (~300 execuções); catalogado como **E-A6** em
+[`10-matriz-de-experimentos.md`](./10-matriz-de-experimentos.md).
 
 ---
 

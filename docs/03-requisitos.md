@@ -134,6 +134,36 @@ suspender o atendimento, registrar a pergunta e retomar quando houver resposta.
 
 ---
 
+### RF44 — Verificar a resolução por guardrail determinístico antes de entregar
+**Prioridade:** MUST
+
+Antes de entregar a resolução ao solicitante, o sistema deve aplicar verificações **determinísticas**:
+
+| Verificação | O que pega |
+| :--- | :--- |
+| **V1 — ancoragem** | evidência citada que não existe em nenhum retorno do trace |
+| **V2 — afirmação vedada** | referência a norma genérica (ISO 10816) ou tabela por classe |
+| **V3 — limiar sem referência** | limiar numérico afirmado sem que o baseline tenha sido obtido |
+
+Falha em qualquer uma **escala o caso para análise humana, sem retentativa**.
+
+**Verificação:** resolução com evidência forjada não é entregue; o trace registra separadamente a
+decisão do agente e a decisão efetivamente entregue.
+**Origem:** segurança de produto · **Relacionado:** RF08, RF25, M16
+
+> **Por que sem retentativa.** Reexecutar custaria cota e mudaria o que está sendo medido. Escalar é
+> o comportamento correto: se o sistema não consegue garantir a resposta, um humano assume.
+
+> **⚠️ Por que o juiz LLM NÃO está aqui.** Três razões: latência (mais uma chamada por ticket), cota
+> (dobraria o custo, reduzindo de 187 para ~93 tickets/dia) e — decisiva — **contaminação do
+> experimento**: um juiz no caminho crítico faria H1 medir *agente + juiz*, não a arquitetura do
+> agente. Some-se que o juiz só é validado **depois** da meta-avaliação; pôr no caminho crítico um
+> componente de confiabilidade ainda não medida inverte a ordem.
+>
+> O guardrail é determinístico, instantâneo e reprodutível. O juiz não é nenhum dos três.
+
+---
+
 ### RF43 — Manter o agente sem estado entre turnos
 **Prioridade:** MUST
 
@@ -834,9 +864,9 @@ consulta a informação externa.
 
 | Categoria | MUST | SHOULD | COULD | Total |
 | :--- | ---: | ---: | ---: | ---: |
-| Funcionais | 32 | 10 | 1 | **43** |
+| Funcionais | 33 | 10 | 1 | **44** |
 | Não-funcionais | 16 | 3 | 0 | **19** |
-| **Total** | **51** | **13** | **1** | **62** |
+| **Total** | **52** | **13** | **1** | **63** |
 
 ## RNF por categoria
 
@@ -866,3 +896,4 @@ consulta a informação externa.
 | RNF16 | Guarda de cota | Sem ela o experimento estoura a cota e para por dias |
 | RF39 | Caminho único ticket/suíte | Se divergirem, a avaliação mede um sistema paralelo, não o produto |
 | RF43 | Agente sem estado entre turnos | Violação prende workers durante a espera e trava o sistema |
+| RF44 | Guardrail antes da entrega | Sem ele, resolução com evidência inventada chega ao cliente |

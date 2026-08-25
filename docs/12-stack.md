@@ -72,8 +72,15 @@
 | **statsmodels** | 0.14+ | análise | Regressão logística com interação |
 | **scipy** | 1.14+ | análise | Testes pareados, bootstrap |
 | **scikit-learn** | 1.5+ | análise | Kappa de Cohen |
+| **DeepEval** | recente | avaliação | Juiz (GEval) · ToolCorrectness · component-level no piloto |
+| **import-linter** | 2.x | testes | Regra de dependência, inclusive **import indireto** |
+| **polyfactory** | 2.x | testes | Gera `ExecutionTrace` válido a partir do modelo Pydantic |
 | **pytest** | 8.x | testes | Suíte e invariantes |
 | **pytest-asyncio** | 0.24+ | testes | Testes assíncronos |
+| **respx** | 0.21+ | testes | Mock de httpx sem rede |
+| **time-machine** | 2.x | testes | Controle de relógio (expiração de lease) |
+| **typer** | 0.12+ | CLI | Entrypoints |
+| **pydantic-settings** | 2.x | config | `.env` tipado |
 | **React** | 18 | front | Interface |
 | **Vite** | 5.x | front | Build e dev server |
 | **TypeScript** | 5.x | front | Tipagem espelhando os contratos Pydantic |
@@ -251,6 +258,78 @@ projeto).
 #### scikit-learn
 **Onde:** `cohen_kappa_score` na meta-avaliação do juiz.
 **Por quê:** uma função. Não justifica implementação própria.
+
+#### DeepEval — três usos, três justificativas
+
+**① Juiz da rubrica — `GEval`**
+**Onde:** `evaluation/judge/`.
+**Configuração obrigatória:**
+
+```python
+GEval(
+    name="C1_baseline_declarado",
+    evaluation_steps=[...],   # ← EXPLÍCITOS, nunca auto-gerados por `criteria`
+    strict_mode=True,         # ← saída binária, alinhada à rubrica (RF26)
+    model=modelo_groq,        # ← RNF09: distinto do agente
+)
+```
+
+> ⚠️ **A documentação declara que o GEval NÃO é determinístico** quando recebe só `criteria` — ele
+> regenera os passos de raciocínio a cada execução. Isso colidiria com o **RNF01**. Passar
+> `evaluation_steps` fixos é a mitigação documentada, e por isso é obrigatória aqui, não opcional.
+> Existe também `DAGMetric` para controle determinístico, a avaliar se o `strict_mode` não bastar.
+
+**② Validação cruzada — `ToolCorrectnessMetric`**
+**Onde:** amostra de ~30 execuções, comparada ao nosso M1.
+**Por quê:** se uma implementação independente concordar com a nossa, é **validação externa** da
+métrica de trajetória. Custo quase zero, argumento forte no README. Suporta ordenação via
+`should_consider_ordering=True`.
+
+**③ Diagnóstico no piloto — avaliação em nível de componente**
+**Onde:** apenas na rodada piloto (~20 execuções).
+**Por quê:** `@observe(metrics=[...])` anexa métricas a **spans individuais** — permite descobrir
+coisas como *"o agente escolhe a tool certa no passo 2 mas ignora o retorno no passo 5"*, que
+nenhuma métrica agregada revela.
+
+> ⚠️ **Não escala para o experimento.** A conta:
+>
+> | | |
+> | :--- | ---: |
+> | 8 passos × 1.021 execuções | 8.168 spans |
+> | 1 métrica LLM por span | 8.168 chamadas de juiz |
+> | cota do juiz (Groq) | 250/dia |
+> | **tempo necessário** | **33 dias** |
+>
+> No piloto: 20 × 8 = 160 chamadas, uma vez. Cabe.
+
+**O que o DeepEval NÃO cobre.** M5a/M5b, M7, M8, M14, M10, M11 — todas operam sobre a **estrutura da
+trajetória** (em qual passo o dado chegou, qual evidência foi ancorada a qual passo), e o
+`LLMTestCase` não tem campo para isso. A regra: métrica de **entrada→saída** cabe; métrica de
+**trajetória** não.
+
+#### import-linter
+**Onde:** contratos em `pyproject.toml`, rodado no CI e como teste.
+**Por quê:** substitui um verificador de AST escrito à mão — e faz **mais**: detecta **import
+indireto**, cadeias através de módulos intermediários. Um checker de import direto deixaria passar
+`analysis/ → utils/ → agents/`, quebrando silenciosamente a promessa de que a análise roda sem SDK
+de LLM.
+
+```toml
+[[tool.importlinter.contracts]]
+name = "Análise não conhece execução"
+type = "forbidden"
+source_modules = ["src.analysis"]
+forbidden_modules = ["src.agents", "src.tools", "google.genai", "openai"]
+```
+
+Três tipos de contrato mapeiam nossas três regras: `layers`, `forbidden`, `independence`.
+
+#### polyfactory
+**Onde:** `tests/factories/`.
+**Por quê:** `ExecutionTrace` tem passos aninhados, handoffs e resolução com evidências. Escrever à
+mão em cada teste é inviável para 16 métricas × 2 testes. O polyfactory gera a partir do modelo
+Pydantic e o teste **sobrescreve só o campo que importa** — é o que torna o TDD das métricas
+executável em dois dias.
 
 ---
 

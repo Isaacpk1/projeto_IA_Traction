@@ -26,7 +26,7 @@
 > ### 🚦 Tudo que o experimento precisa para rodar tem que estar pronto até **31/08**.
 
 São **7 dias** para construir: contratos, camada de ferramentas, agente mono, agente multi, fila,
-runner, golden dataset e métricas.
+runner, guardrail, golden dataset e métricas.
 
 O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatística — é construído
 **enquanto o experimento roda em segundo plano**. Essa é a única forma de caber.
@@ -38,7 +38,7 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
 ```
         ├──────── CONSTRUÇÃO DO NÚCLEO ────────┤
 24/08 ──┤ contratos · tools · agente · fila     ├── 31/08  🚦 GO/NO-GO
-        │ métricas · golden dataset             │
+        │ guardrail · métricas · golden dataset │
         └───────────────────────────────────────┘
                                                  │
 01/09 ──┬─ TRILHA A (fundo) ── experimento executando ──────────┬── 06/09
@@ -52,27 +52,99 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
 ```
 
 **A trilha A não exige atenção.** O runner é CLI, roda sozinho, retoma se cair, pausa na cota e
-prossegue. Você olha o progresso pelo console uma vez por dia.
+prossegue. Você olha o progresso pelo Langfuse uma vez por dia.
 
 ---
 
-## 3. Fases
+## 3. Como você enxerga o sistema durante a construção
+
+Esta seção existe porque durante 10 dos 15 dias **não há front**. E depurar um agente de raciocínio
+com `print` é o caminho mais rápido para perder três dias.
+
+### 3.1 A escada de visibilidade
+
+| Fase | Instrumento | Custo de construção | O que responde |
+| :--- | :--- | :--- | :--- |
+| 0 → sempre | **Langfuse** (container + `TraceSink`) | ~2 h, **uma vez** | "por que o agente decidiu isso?" — passo a passo, latência, tokens, custo |
+| 0 → sempre | **JSONL em disco** | zero (já é RF) | fonte de verdade; nada depende de serviço externo |
+| 3 → sempre | `pytest -v` sobre traces sintéticos | zero | "a lógica está certa?" |
+| 03/09 → | **Front React** | 2 dias | "o produto funciona e é demonstrável?" |
+
+> **A decisão importante:** o Langfuse entra na **Fase 0**, não quando der. Ele é a diferença entre
+> calibrar prompt olhando um trace renderizado e calibrar prompt lendo JSON no terminal. Custa duas
+> horas uma única vez e serve os 15 dias inteiros.
+
+### 3.2 Por que Langfuse e não só CLI
+
+O visualizador de CLI com `rich` (~50 linhas) foi a decisão anterior. Ele foi **substituído**, não
+somado — construir os dois é desperdício. O Langfuse entrega, de graça, tudo que a CLI daria e mais:
+
+| Precisa | CLI `rich` | Langfuse |
+| :--- | :---: | :---: |
+| Ver um trace passo a passo | ✅ | ✅ |
+| Comparar duas execuções lado a lado | ❌ | ✅ |
+| Filtrar por caso / braço / seed | ❌ | ✅ |
+| Custo e tokens por passo | ❌ | ✅ |
+| Ver o histórico enquanto o experimento roda | ❌ | ✅ |
+| Anexar score do juiz ao trace | ❌ | ✅ |
+| Funciona sem container | ✅ | ❌ |
+
+O último ponto é o que justifica a arquitetura do `CompositeTraceSink` (doc [`11`](./11-camada-de-analise.md) §2.5):
+o JSONL é obrigatório e a falha propaga; o Langfuse é opcional e a falha é engolida. **Se o Langfuse
+cair no meio do experimento, nada se perde.**
+
+### 3.3 O que o front básico é — e o que ele não é
+
+Você pediu um front "bem básico, para ver tudo melhor do que um print". A definição precisa:
+
+**Três telas, nada além:**
+
+| Tela | Quando | O que mostra | Por que é essencial |
+| :--- | :--- | :--- | :--- |
+| **Console de atendimento** | 03/09 | fila de tickets, status, resolução entregue, veredito do guardrail | É a **demonstração de produto** — a coisa que prova que não é script de experimento |
+| **Chat multi-turno** | 03/09 | conversa com o agente sobre um ticket, com streaming | Prova RF37–RF43 ao vivo na apresentação |
+| **Dashboard de hipóteses** | 04/09 | M1–M16 por braço, curva dose-resposta, veredito de H1–H4 | É onde o resultado do experimento aparece |
+
+**O que o front NÃO faz — e isso é decisão, não falta de tempo:**
+
+- ❌ **Não reimplementa inspeção profunda de trace.** Cada execução no console tem um **link para o
+  Langfuse**. Reconstruir renderização de span, timeline e diff seria 1,5 dia para ficar pior.
+- ❌ **Não tem autenticação, papéis ou multi-tenancy.** Extras, §8.
+- ❌ **Não tem edição de golden case pela UI.** JSON versionado é melhor para um dataset que precisa
+  ser reprodutível.
+
+> **A regra:** o front mostra **o que o produto faz** e **o que o experimento concluiu**. O Langfuse
+> mostra **por que o agente decidiu**. Não se sobrepõem.
+
+---
+
+## 4. Fases
 
 ### Fase 0 — Fundação · **24–25/08** (2 dias)
 
 | Entrega | Detalhe |
 | :--- | :--- |
 | `pyproject.toml` + estrutura de pastas | conforme [`13`](./13-padroes-e-estrutura.md) |
-| `core/contracts/` | `ExecutionTrace`, `Resolution`, `EvidenceRef`, `InvestigationReport`, `GoldenCase`, `MetricResult`, `Task` |
+| `core/contracts/` | `ExecutionTrace`, `Resolution`, `Delivered`, `EvidenceRef`, `InvestigationReport`, `GoldenCase`, `MetricResult`, `Task` |
 | `core/ports/` | `LLMClient`, `ToolProvider`, `WorkQueue`, `TraceSink` |
 | **`tests/fakes/`** | **`FakeLLMClient`, `FakeToolProvider`, `InMemoryQueue`** |
+| **`tests/factories/`** | **polyfactory sobre `ExecutionTrace`, `Resolution`, `GoldenCase`** |
+| **Langfuse subindo no Compose** | `langfuse` + `langfuse-db`; `JsonlTraceSink` + `LangfuseTraceSink` + `CompositeTraceSink` (ADR-14) |
+| Contratos do `import-linter` | em `pyproject.toml` — substitui o checker de AST |
+| **Spike `pydantic-ai` — 2h, timeboxed** | uma tool, um loop com `TestModel`, verificar se o histórico permite montar o trace |
 | `tests/test_architecture.py` | regra de dependência |
 | Script de medição de cota | valida os 187/dia |
+| Decisão do spike | adotar `pydantic-ai` ou loop próprio — **decidir no dia 1, não depois** |
 
 > **Os fakes vêm primeiro, antes de qualquer implementação real.** Sem `FakeLLMClient`, não existe
-> TDD do agente — só teste de integração caro e não-determinístico. Ver §5.
+> TDD do agente — só teste de integração caro e não-determinístico. Ver §6.
 
-**DoD:** `pytest` verde · regra de dependência falhando quando violada de propósito · cota medida.
+> **Timebox do Langfuse: 2 h.** Se o self-host não subir nesse tempo, use o cloud free tier
+> (50k observações/mês, folgado para 1.021 execuções) e siga. Se nem isso, `JsonlTraceSink` sozinho
+> já satisfaz todos os RFs — o Langfuse é conforto, não requisito (RC-08).
+
+**DoD:** `pytest` verde · regra de dependência falhando quando violada de propósito · cota medida ·
+**um trace de mentira aparecendo na UI do Langfuse**.
 
 ---
 
@@ -87,25 +159,36 @@ domínio em `tools/core/` passa (RNF06) · teste de composição por `tier` pass
 
 ### Fase 2 — Agente mono · **27/08** (1 dia)
 
-`react.py` · `tracer.py` · `submit_resolution` · prompt base (`prompts/base.md`) · adaptador Gemini
+`react.py` · `tracer.py` · `submit_resolution` · **prompt base (`prompts/base.md`)** · adaptador
+Gemini
+
+> **A calibração acontece aqui, e acontece olhando UM trace no Langfuse** — não uma média. Ver que o
+> agente chamou `getBaseline`, recebeu `invalidated` e ignorou é o que ajusta prompt e rubrica.
+> Dashboard com 20 execuções é ruído. Por isso o Langfuse é Fase 0 e não Fase 6.
 
 **DoD:** um caso completo com `FakeLLMClient` (determinístico, em milissegundos) · **depois** o mesmo
-caso contra Gemini real e API local · trace válido gravado.
+caso contra Gemini real e API local · trace válido gravado em JSONL · **o mesmo trace navegável no
+Langfuse**.
 
 ---
 
-### Fase 3 — Fila e runner · **28/08** (1 dia)
+### Fase 3 — Fila, runner e guardrail · **28/08** (1 dia)
 
-`queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py`
+`queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py` · **`guardrail.py` (RF44)**
+
+> **O guardrail determinístico (V1/V2/V3) está no caminho de entrega** — é o que separa `Resolution`
+> (o que o agente decidiu) de `Delivered` (o que chegou ao solicitante). O juiz LLM **não** está
+> nesse caminho: ele roda depois, fora, na camada de análise. Ver ADR-13.
 
 **DoD:** 20 casos executam · interromper com `Ctrl-C` e reexecutar retoma sem reprocessar · guarda de
-isolamento aborta quando o gabarito é exposto de propósito (RNF02).
+isolamento aborta quando o gabarito é exposto de propósito (RNF02) · **guardrail bloqueia resolução
+que cita evidência não presente no trace**.
 
 ---
 
 ### Fase 4 — Golden dataset e métricas · **29–30/08** (fim de semana, 2 dias)
 
-`base_cases.json` formalizado dos 17 · `adversarial_cases.json` (A1–A5) · scorers M1–M15
+`base_cases.json` formalizado dos 17 · `adversarial_cases.json` (A1–A5) · scorers M1–M16
 
 **DoD:** cada métrica com teste sobre trace sintético · métricas calculadas sobre as execuções da
 Fase 3 · `applicable` correto (M14 em mono retorna `applicable=0`, não zero — RF35).
@@ -121,20 +204,26 @@ Investigador não possui tool de `tier: impact`**.
 
 ---
 
-## 🚦 4. GO / NO-GO — 31 de agosto
+## 🚦 5. GO / NO-GO — 31 de agosto
 
-Checklist objetivo. Se algum item falhar, **corte pela lista da §8** — não empurre o prazo.
+Checklist objetivo. Se algum item falhar, **corte pela lista da §9** — não empurre o prazo.
 
 - [ ] Um caso executa de ponta a ponta nos braços A e B
 - [ ] Fila retoma após interrupção
 - [ ] Guarda de isolamento bloqueia (RNF02)
+- [ ] **Guardrail (RF44) bloqueando resolução com evidência forjada**
 - [ ] Métricas calculam sobre traces reais
 - [ ] Golden dataset com `forbidden_claims` e `required_preconditions`
 - [ ] Cota real medida e vazão confirmada
-- [ ] Rotulação humana cega dos 30 casos **feita**
+- [ ] Rotulação humana cega de **40 casos** feita (10 calibração + 30 validação, sem sobreposição)
 
-> A rotulação humana precisa acontecer **antes** de ver qualquer resultado agregado. Se escorregar
-> para depois do experimento, a meta-avaliação do juiz fica contaminada por viés de confirmação.
+> **Duas condições sobre a rotulação, ambas obrigatórias.** Precisa acontecer **antes** de ver
+> qualquer resultado agregado — senão a meta-avaliação fica contaminada por viés de confirmação. E os
+> 40 precisam ser **divididos** em 10 de calibração e 30 de validação, sem sobreposição — senão o
+> kappa mede a memória do juiz, não o julgamento dele.
+
+> **O Langfuse não está no checklist.** Ele é conforto de desenvolvimento, não pré-condição de
+> experimento. Se não subiu, o JSONL cobre tudo que os RFs exigem.
 
 ---
 
@@ -151,15 +240,18 @@ Checklist objetivo. Se algum item falhar, **corte pela lista da §8** — não e
 | 05/09 | 935 |
 | 06/09 | **1.021 ✓** |
 
-Julgamento roda em paralelo, ~1 dia atrás, a 250/dia.
+Julgamento roda em paralelo, ~1 dia atrás, a 250/dia. **Score do juiz é anexado ao trace no Langfuse**
+(`langfuse.score()`), o que permite filtrar "todas as execuções que o juiz reprovou" e abrir o
+raciocínio de cada uma — isso é calibração de rubrica praticamente de graça.
 
 **Trilha B — construção:**
 
 | Dias | Entrega |
 | :--- | :--- |
 | 01–02/09 | Ingestão (`POST /tickets`), prioridade, sessão multi-turno (RF37–RF43) |
-| 03–04/09 | BFF + front: console de atendimento, chat com streaming, inspetor de trace |
-| 05–06/09 | Juiz + rubrica + meta-avaliação (kappa) + camada estatística |
+| 03/09 | BFF + front: **console de atendimento** e **chat com streaming** |
+| 04/09 | Front: **dashboard de hipóteses** (M1–M16, dose-resposta) + link por execução para o Langfuse |
+| 05–06/09 | Juiz (DeepEval `GEval`, `strict_mode=True`) + rubrica + meta-avaliação (kappa) + camada estatística |
 
 ---
 
@@ -172,9 +264,9 @@ e Limitações · apresentação.
 
 ---
 
-## 5. Estratégia de TDD
+## 6. Estratégia de TDD
 
-### 5.1 Por que os fakes vêm primeiro
+### 6.1 Por que os fakes vêm primeiro
 
 TDD exige que o teste rode **rápido e determinístico**. Um agente que chama LLM não é nenhum dos
 dois. A solução não é abrir mão do TDD — é injetar um duplo:
@@ -214,16 +306,18 @@ async def test_agente_verifica_baseline_antes_de_concluir():
 **Isto é o hexagonal se pagando.** As portas `LLMClient` e `ToolProvider` existem exatamente para
 que os duplos entrem no lugar dos reais.
 
-### 5.2 O que se testa como
+### 6.2 O que se testa como
 
 | Componente | Determinístico? | Abordagem | TDD real? |
 | :--- | :---: | :--- | :---: |
-| Scorers (M1–M15) | ✅ | função pura sobre trace sintético | ✅ **ideal** |
+| Scorers (M1–M16) | ✅ | função pura sobre trace sintético | ✅ **ideal** |
+| **Guardrail V1/V2/V3 (RF44)** | ✅ | trace com evidência forjada | ✅ **ideal** |
 | Fila (lease, prioridade, idempotência) | ✅ | SQLite em memória | ✅ **ideal** |
 | `openapi_parser` + overlay | ✅ | contrato real como fixture | ✅ **ideal** |
 | Prioritizer | ✅ | criticidade → prioridade | ✅ **ideal** |
 | Sessão multi-turno (RF43) | ✅ | persistir e restaurar | ✅ **ideal** |
 | Invariantes (RNF02, RNF05, RF33, RF12) | ✅ | asserção estrutural | ✅ **ideal** |
+| `CompositeTraceSink` | ✅ | sink secundário lançando exceção | ✅ **ideal** |
 | Loop ReAct | ⚠️ | `FakeLLMClient` roteirizado | ✅ **sim, com duplo** |
 | Handoff tipado | ⚠️ | fake + validação Pydantic | ✅ **sim, com duplo** |
 | `http_executor` | ⚠️ | transporte mock do httpx | ✅ **sim, com duplo** |
@@ -234,13 +328,25 @@ que os duplos entrem no lugar dos reais.
 > **agente raciocina bem**. Confundir os dois leva a testes frágeis que quebram porque o modelo
 > respondeu diferente — e isso não é bug.
 
-### 5.3 A pirâmide
+**Um teste que vale destacar** — o que garante que o Langfuse nunca derruba o experimento:
+
+```python
+def test_falha_do_langfuse_nao_perde_trace():
+    jsonl, langfuse = JsonlTraceSink(tmp), SinkQueSempreFalha()
+    sink = CompositeTraceSink(jsonl=jsonl, langfuse=langfuse)
+
+    sink.record(passo)          # não levanta
+
+    assert jsonl.ler() == [passo]
+```
+
+### 6.3 A pirâmide
 
 ```
          ╱ E2E ╲              2–3 testes · LLM real · CONSOME COTA
        ╱ integração ╲         ~20 · fakes + API local
      ╱     unidade     ╲      ~150 · puro, milissegundos
-   ╱   invariantes      ╲     ~8 · bloqueiam o build
+   ╱   invariantes      ╲     ~9 · bloqueiam o build
 ```
 
 **Os testes de invariante são os mais importantes do projeto**, e não estão no topo por acaso — eles
@@ -251,16 +357,17 @@ não medem comportamento, eles **impedem** que o projeto se invalide:
 | Isolamento do gabarito | RNF02 — vazamento invalida **todos** os resultados |
 | Composição por `tier` | RF12 / RNF05 — Investigador sem tool de impacto |
 | Braço de modelo válido | RF33 — A vs C torna H1 ininterpretável |
-| Regra de dependência | `analysis/` não importa `agents/` |
+| Regra de dependência (`import-linter`) | `analysis/` não importa `agents/` nem SDK de LLM |
 | Núcleo sem domínio | RNF06 |
 | Retomada por lease | RNF03 |
 | Aplicabilidade ≠ zero | RF35 |
 | Caminho único ticket/suíte | RF39 |
+| **Trace preservado sob falha de sink secundário** | ADR-14 — observabilidade não é ponto único de falha |
 
 **E2E consome cota.** Cada teste ponta a ponta com LLM real gasta ~8 requisições de um orçamento de
 1.500/dia. Dois ou três, rodados manualmente antes de marcos — nunca em CI a cada commit.
 
-### 5.4 O ciclo, na prática
+### 6.4 O ciclo, na prática
 
 ```
 1. Escreva o teste que falha       ← define o comportamento
@@ -293,80 +400,145 @@ prova que o instrumento discrimina.
 
 ---
 
-## 6. Definition of Done — geral
+## 7. Definition of Done — geral
 
 Vale para toda fase:
 
 - [ ] Testes de unidade escritos **antes** da implementação
 - [ ] Testes de invariante passando
 - [ ] Contratos Pydantic validados nas fronteiras (RNF13)
-- [ ] Sem `import` violando a regra de dependência
+- [ ] Sem `import` violando a regra de dependência (`lint-imports` verde)
 - [ ] Documentação atualizada se a decisão mudou
 
 ---
 
-## 7. Ferramentas de teste
+## 8. 🎁 Extras — só se sobrar tempo
 
-| Ferramenta | Uso |
+Tudo abaixo é **valor adicional, não requisito**. Nenhum item aqui é pré-condição de nenhuma
+hipótese, de nenhum RF obrigatório, nem do GO/NO-GO. A ordem é por **valor entregue ÷ custo** —
+execute de cima para baixo, e pare quando o tempo acabar.
+
+> **A regra de ouro dos extras:** só começa um item da lista se o núcleo estiver verde **e** se ele
+> couber inteiro no tempo restante. Extra pela metade é pior que extra nenhum — vira dívida que
+> aparece na apresentação.
+
+| # | Extra | Trabalho | Cota extra | O que agrega |
+| ---: | :--- | :--- | ---: | :--- |
+| **1** | **E-V2 — Rubrica binária vs Likert** | ~3 h | **0 execuções**<br>+594 julgamentos | Testa se a decomposição binária realmente aumenta a concordância com humano. **Não reexecuta o agente** (RF34) — melhor relação valor/custo do catálogo |
+| **2** | **Validação cruzada `ToolCorrectness`** | ~2 h | ~30 chamadas | Confronta M5a/M6 (implementação própria) com métrica de biblioteca terceira. Argumento de validade de instrumento, quase de graça |
+| **3** | **E-T2 — Isolamento de tool sem isolamento de agente** | ~4 h | +272 exec | **Resolve a limitação L11**: separa "efeito de isolamento de contexto" de "efeito de catálogo menor". Converte limitação declarada em achado |
+| **4** | **E-A6 — Agente adversarial ("advogado do diabo")** | ~1,5 dia | +~300 exec | 4ª camada de defesa. Ver §8.1 |
+| **5** | **Envelope MCP sobre a camada de tools** | ~2 h | 0 | Permite plugar Claude Desktop / Slack / n8n no sistema. ADR-01 já deixa o caminho aberto — é adaptador, não reescrita |
+| **6** | **E-A3 — Handoff tipado vs handoff em prosa** | ~4 h | +272 exec | Valida o ADR-05 e a predição P1.4, hoje afirmações não demonstradas |
+| **7** | **E-V4 — Casos base vs casos gerados** | ~4 h | +272 exec | Verifica se casos sintéticos reproduzem a dificuldade dos originais — pré-requisito honesto para o item 8 |
+| **8** | **Ampliação do golden dataset** (17 → 30 casos) | ~1 dia | +muito | Mais poder estatístico. **Mas cada caso novo multiplica por 60 execuções** — só cabe se o experimento terminar cedo, e só faz sentido depois do item 7 |
+| **9** | **Autenticação / papéis / multi-tenancy no front** | ~1 dia | 0 | Realismo de produto. Zero valor experimental — último por isso |
+
+> A ordem dos experimentais (E-V2 → E-T2 → E-A6 → E-A3 → E-V4) é a mesma da §9.2 de
+> [`10-matriz-de-experimentos.md`](./10-matriz-de-experimentos.md). Os itens não-experimentais estão
+> intercalados pelo mesmo critério de valor ÷ custo.
+
+### 8.1 O agente adversarial (E-A6) — por que está aqui e não no núcleo
+
+A ideia: um **quarto agente** que percorre o mesmo caminho dos outros, mas com instrução invertida —
+em vez de "resolva o ticket", recebe "**encontre o motivo pelo qual esta resolução está errada**".
+No fim, as duas linhas de raciocínio se confrontam e a que sobrevive é a entregue.
+
+**Por que é bom:** ataca o modo de falha mais perigoso do sistema — o agente que constrói uma
+narrativa plausível e coerente a partir de uma premissa errada, e que nenhuma das outras três
+camadas de defesa pega. O guardrail (RF44) verifica se a evidência **existe**; o adversarial
+questiona se ela **sustenta a conclusão**.
+
+**Por que é extra e não núcleo:**
+
+| Razão | Detalhe |
 | :--- | :--- |
-| `pytest` + `pytest-asyncio` | base |
-| `pytest-cov` | cobertura — meta 80% em `core/`, `analysis/`, `tools/core/` |
-| `respx` ou transporte mock do `httpx` | `http_executor` sem rede |
-| SQLite `:memory:` | fila em milissegundos |
-| `hypothesis` *(opcional)* | propriedades da fila: lease nunca duplica trabalho |
-| `freezegun` | expiração de lease sem esperar |
+| **Custa cota que o experimento não tem** | +~300 execuções sobre 1.021 já apertadas em 5,5 dias — quase +1,5 dia de espera |
+| **Não pertence a nenhuma hipótese** | H1 é dose-resposta de arquitetura; H4 é não-inferioridade de modelo. Como **quinto braço** seria uma H5 que não existe — e com 4 hipóteses já declaradas, não cabe |
+| **Muda o objeto de medida** | Se entrar no caminho de entrega, H1 passa a medir "agente + adversarial", não a arquitetura |
+| **Confunde a defesa** | A tese é sobre engenharia e avaliação de agentes. Um mecanismo novo no fim do cronograma dilui isso |
 
-> **`freezegun` merece destaque.** Testar expiração de lease de 300 segundos sem controlar o relógio
-> significaria esperar 5 minutos por teste. Com relógio controlado, milissegundos.
+**Como fica documentado mesmo se não for implementado:** o desenho completo está em
+[`10-matriz-de-experimentos.md`](./10-matriz-de-experimentos.md) (E-A6) — prompt, protocolo de
+confronto, critério de desempate e métrica. Na apresentação, isso vira uma seção de **Trabalhos
+Futuros com desenho pronto**, que vale mais que uma implementação apressada e não medida.
+
+### 8.2 As camadas de defesa — onde cada uma está
+
+Contexto para entender por que E-A6 é a 4ª camada e não a 1ª (ADR-13):
+
+| # | Camada | Quando age | Garantia | Status |
+| ---: | :--- | :--- | :--- | :--- |
+| 1 | **Composição por `tier`** (RF12) | **antes** — a tool não existe no schema | determinística | ✅ núcleo, Fase 1 |
+| 2 | **Instrução no prompt** | **durante** | probabilística | ✅ núcleo, Fase 2 |
+| 3 | **Guardrail V1·V2·V3** (RF44) | **depois**, no caminho de entrega | determinística | ✅ núcleo, Fase 3 |
+| 4 | **Agente adversarial** (E-A6) | antes de **agir**, por confronto | probabilística e **independente** | 🎁 extra |
+
+> **O juiz LLM não é camada de defesa.** Ele mede, não protege — roda fora do caminho de entrega, na
+> camada de análise (Fase 6). Colocá-lo no caminho dobraria a latência, cortaria a vazão de 187 para
+> ~93 tickets/dia e contaminaria H1, que passaria a medir "agente + juiz".
+
+> As camadas 1 e 3 são **determinísticas** — funcionam mesmo se o modelo alucinar. As camadas 2 e 4
+> são **probabilísticas**. Por isso o núcleo garante as determinísticas primeiro.
 
 ---
 
-## 8. Plano de contingência
+## 9. Plano de contingência
 
 Se o GO/NO-GO de 31/08 falhar, **corte nesta ordem**. Cada corte preserva o que a rubrica pesa mais.
+
+> **Antes de qualquer corte desta lista: a §8 inteira já está fora.** Extras não são cortes — eles
+> nunca foram compromisso.
 
 | # | Corte | Custo | Perde |
 | ---: | :--- | :--- | :--- |
 | 1 | **E3** (H3, overlay) | −130 exec | Uma hipótese secundária, já condicional |
-| 2 | **Envelope MCP** | −2 h | Interoperabilidade de host (ADR-01 já prevê) |
-| 3 | **Multi-turno** (RF40, RF41, RF43) | −1,5 dia | Feature de produto; L10 já declara a lacuna |
-| 4 | **Braço C** (H4) | −272 exec | Uma hipótese; A vs B permanece intacto |
-| 5 | **Console de atendimento** | −1 dia | Mantém chat + dashboard |
-| 6 | **Front React → relatório HTML estático** | −2 dias | Demo ao vivo; resultados continuam |
-| 7 | Reduzir seeds de 8 para 4 | −272 exec | Poder da análise dose-resposta |
+| 2 | **Multi-turno** (RF40, RF41, RF43) | −1,5 dia | Feature de produto; L10 já declara a lacuna |
+| 3 | **Braço C** (H4) | −272 exec | Uma hipótese; A vs B permanece intacto |
+| 4 | **Console de atendimento** | −1 dia | Mantém chat + dashboard |
+| 5 | **Front React → relatório HTML estático** | −2 dias | Demo ao vivo; resultados continuam. **O Langfuse continua servindo de inspeção** |
+| 6 | Reduzir seeds de 8 para 4 | −272 exec | Poder da análise dose-resposta |
 
 **Nunca cortar:**
 
 - Experimento A vs B — é a hipótese central
 - Guarda de isolamento — sem ela nenhum resultado vale
-- Trace estruturado — sem ele não há dado
+- Trace estruturado em JSONL — sem ele não há dado
+- Guardrail RF44 — é a diferença entre produto e protótipo
 - Meta-avaliação do juiz — sem ela as métricas de rubrica têm erro desconhecido
 
 ---
 
-## 9. Riscos do cronograma
+## 10. Riscos do cronograma
 
 | ID | Risco | Sinal | Resposta |
 | :--- | :--- | :--- | :--- |
-| **RC-01** | Núcleo não pronto em 31/08 | GO/NO-GO falha | Cortar pela §8 e iniciar o experimento no dia 01 de qualquer forma |
+| **RC-01** | Núcleo não pronto em 31/08 | GO/NO-GO falha | Cortar pela §9 e iniciar o experimento no dia 01 de qualquer forma |
 | **RC-02** | Tool calling do Gemini instável | Taxa de `contract` alta na Fase 2 | Trocar de modelo **na Fase 2**, não depois |
 | **RC-03** | Cota real abaixo de 187/dia | Script de medição da Fase 0 | Recalcular: menos seeds ou menos repetições |
 | **RC-04** | Experimento inicia atrasado | Passar de 01/09 | Cada dia de atraso tira um dia da análise. Após 03/09, cortar o braço C |
 | **RC-05** | Bug de métrica descoberto tarde | Valores implausíveis | Recomputação é barata (RF34) — só não reexecute o agente |
 | **RC-06** | Rotulação humana empurrada | Não feita até 31/08 | **Fazer mesmo assim antes de ver resultados** — é o que garante a validade da meta-avaliação |
+| **RC-07** | Spike de `pydantic-ai` vira rabbit hole | Passar de 2 h na Fase 0 | **Timebox rígido.** Estourou, adota loop próprio e segue — a decisão importa menos que o tempo |
+| **RC-08** | Langfuse self-host não sobe | Passar de 2 h na Fase 0 | Cloud free tier; se nem isso, `JsonlTraceSink` sozinho. **Não é bloqueio de nada** |
+| **RC-09** | Extra iniciado sem caber | Item da §8 pela metade em 06/09 | Descartar o parcial e documentar como Trabalho Futuro. Não levar meia-implementação à apresentação |
 
 ---
 
-## 10. Resumo em uma tela
+## 11. Resumo em uma tela
 
 | Data | Foco | Marco |
 | :--- | :--- | :--- |
-| 24–25/08 | Contratos, portas, **fakes**, invariantes | `pytest` verde |
+| 24–25/08 | Contratos, portas, **fakes**, invariantes, **Langfuse** | `pytest` verde · trace visível na UI |
 | 26/08 | Camada de ferramentas | 18 tools geradas |
-| 27/08 | Agente mono | um caso ponta a ponta |
-| 28/08 | Fila e runner | 20 casos, retomada funciona |
+| 27/08 | Agente mono + prompt base | um caso ponta a ponta |
+| 28/08 | Fila, runner e **guardrail RF44** | 20 casos, retomada funciona |
 | 29–30/08 | Golden dataset e métricas | métricas sobre traces reais |
 | 31/08 | Multi-agente | 🚦 **GO / NO-GO** |
-| 01–06/09 | 🔄 experimento rodando ‖ produto e front | 1.021 execuções |
+| 01–02/09 | 🔄 experimento rodando ‖ ingestão e multi-turno | 374 execuções |
+| 03/09 | 🔄 ‖ console + chat | 561 execuções |
+| 04/09 | 🔄 ‖ dashboard de hipóteses | 748 execuções |
+| 05–06/09 | 🔄 ‖ juiz, meta-avaliação, estatística | **1.021 execuções ✓** |
 | 07/09 | Análise, README, apresentação | veredito das 4 hipóteses |
 | **08/09** | **Entrega e apresentação** | |
+| — | 🎁 §8 — extras, **só se sobrar tempo** | E-V2 → ToolCorrectness → E-T2 → E-A6 → … |

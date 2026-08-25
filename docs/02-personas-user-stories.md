@@ -190,8 +190,8 @@ descer até o caso individual que falhou.
 **Do agente, espera.** Trace completo e estruturado, execução retomável, e resultados que sustentem
 ou refutem a hipótese sem ambiguidade.
 
-> Esta persona justifica RF13–RF18 e RNF01–RNF03. Sem ela, metade dos requisitos do projeto não
-> teria dono.
+> Esta persona justifica principalmente RF17–RF28, RF34–RF36 e RNF01–RNF03. Requisitos de
+> autorização (RF13–RF15) pertencem às personas que executam ações, não ao Avaliador.
 
 ---
 

@@ -127,8 +127,9 @@ sem verificação é intenção.
 | RF41 Solicitar informação | US27 | UC-12 | Estado `awaiting_user` e retomada |
 | RF42 Console de atendimento | US25, US26 | UC-11 | Todo estado visível e navegável |
 | RF43 Agente sem estado | US27 | UC-12 | Retomada por worker diferente, contexto íntegro |
+| RF44 Guardrail na entrega | segurança de produto | UC-04 | **M16** · resolução com evidência forjada não é entregue |
 
-**Resultado: 43 de 43 RF com origem e verificação definidas. Zero órfãos.**
+**Resultado: 44 de 44 RF com origem e verificação definidas. Zero órfãos.**
 
 ---
 
@@ -244,12 +245,12 @@ projeto ficariam desconectadas.
 | :--- | ---: | ---: | ---: |
 | Chamados do material | 17 | 17 | **100%** |
 | User stories | 27 | 27 | **100%** |
-| Requisitos funcionais | 43 | 43 | **100%** |
+| Requisitos funcionais | 44 | 44 | **100%** |
 | Requisitos não-funcionais | 19 | 19 | **100%** |
 | Casos de uso | 12 | 12 | **100%** |
 | Modos de degradação | 7 | 7 | **100%** |
 | Personas | 8 | 8 | **100%** |
-| Métricas | 16 | 16 | **100%** |
+| Métricas | 17 | 17 | **100%** |
 | Hipóteses | 4 | 4 | **100%** |
 
 ### Requisitos sem métrica quantitativa direta

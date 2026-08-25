@@ -301,9 +301,23 @@ estejam satisfeitas.
 
 ### Experimento E3 — Overlay e modelo (H3, condicional)
 
+H3 tem **dois eixos** e eles não custam igual: o eixo do overlay roda no modelo do agente; o eixo do
+modelo (P3.3) depende de um modelo menor, e o único provedor gratuito disponível para isso tem cota
+de 50 req/dia — 6 execuções/dia. Por isso E3 roda sobre uma **amostra de 13 dos 17 casos**, escolhida
+para preservar a distribuição de tipos de defeito e de estados de baseline:
+
 ```
-2 overlays × 2–3 modelos × 17 casos × 3 repetições ≈ 204–306 execuções
+eixo overlay (Gemini)      2 overlays × 13 casos × 4 repetições = 104
+eixo modelo  (OpenRouter)  2 overlays × 13 casos × 1 repetição  =  26   → 26 ÷ 6/dia ≈ 4,3 dias
+                                                           total = 130 execuções
 ```
+
+> **O eixo do modelo não compete por cota com o experimento principal** — provedor diferente, cota
+> diferente. Ele roda em paralelo aos 5,5 dias de E1/E2/E4 sem atrasá-los. É por isso que E3 cabe
+> apesar de ser condicional.
+>
+> Com 1 repetição no eixo do modelo, P3.3 não suporta teste estatístico — sustenta **direção**, não
+> significância. Isso está declarado como limitação, não escondido como resultado.
 
 ### Orçamento total
 
@@ -313,7 +327,7 @@ estejam satisfeitas.
 | **E4** | H4 | B (multi uniforme) vs C (multi heterogêneo) | 272 | 272 |
 | **E2** | H2 | adversariais, A vs B vs C | 75 | 75 |
 | **E3** | H3 | overlay cru vs enriquecido, em B, amostra | 130 | 130 |
-| **Meta** | — | rotulação humana cega | — | 30 humanas |
+| **Meta** | — | rotulação humana cega (10 calib. + 30 valid.) | — | 40 humanas |
 | | | **Total** | **1.021** | **1.021** |
 
 O catálogo completo de experimentos possíveis — declarados, candidatos e descartados, com custo e
@@ -366,6 +380,7 @@ mesmos dados.
 | **M13** | Estabilidade de trajetória | similaridade média entre trajetórias das repetições | 0–1 |
 | **M14** | Perda no handoff | evidência presente no relatório e ausente na resolução final | 0–1 |
 | **M15** | Custo | tokens de entrada e saída, chamadas de LLM, duração | contínuo |
+| **M16** | Intervenção do guardrail | proporção de resoluções bloqueadas por V1/V2/V3 (RF44) | 0–1 |
 
 **Métricas críticas por hipótese:**
 
@@ -401,6 +416,11 @@ realmente instrumenta P1.2.
 julgamento do agente — ter tentado algo que não deveria — e jamais deve ser reportada como falha de
 segurança do sistema.
 
+**M16 mede o guardrail, não o agente.** Uma taxa alta significa que o agente produz resoluções
+mal ancoradas com frequência — o que é informação de produto valiosa, mas **não entra nas hipóteses**.
+As métricas das hipóteses leem `resolution` (a decisão crua do agente), nunca `delivered`. Sem essa
+separação, o guardrail converteria "agir" em "escalar" e o **M4 mediria o guardrail**.
+
 **M14 — Perda no handoff** merece definição explícita, por ser a métrica que instrumenta o custo
 previsto por H1:
 
@@ -413,6 +433,17 @@ Na arquitetura mono, M14 é indefinida (não há handoff) e reportada como `N/A`
 Tratá-la como zero criaria uma vantagem artificial para a arquitetura mono na agregação.
 
 ---
+
+### 5.1b Validação cruzada com implementação independente
+
+Além das métricas próprias, rodar **`ToolCorrectnessMetric` do DeepEval** (com
+`should_consider_ordering=True`) sobre uma amostra de ~30 execuções e comparar com o nosso **M1**.
+
+**Por quê.** Se uma implementação independente concordar com a nossa, é evidência externa de que a
+métrica de trajetória está correta. Se divergir, é bug — nosso ou de interpretação do gabarito, e
+vale descobrir antes de reportar 1.021 execuções.
+
+Custo: ~30 chamadas. Argumento no README: forte.
 
 ### 5.2 Nível programático
 
@@ -519,15 +550,36 @@ output_schema:
 **O problema.** Um juiz não validado é uma fonte de erro desconhecida. Reportar métricas de rubrica
 sem saber se o juiz é confiável equivale a medir com um instrumento não calibrado.
 
+**⚠️ O conjunto rotulado precisa ser dividido.**
+
+```
+40 execuções rotuladas à mão, cego
+        │
+        ├──►  10 · CALIBRAÇÃO   few-shot no prompt do juiz
+        │
+        └──►  30 · VALIDAÇÃO    held-out · só para medir kappa
+                                o juiz NUNCA vê estes
+```
+
+**Por que dividir.** Usar os mesmos exemplos para calibrar o juiz **e** medir a concordância é
+vazamento de treino para teste: o juiz viu aqueles casos no prompt, então concorda com eles por
+memória, não por julgamento. O kappa sairia inflado — e bonito, o que é pior, porque você não teria
+como saber que é falso.
+
 **Procedimento.**
 
 | # | Etapa |
 | :--- | :--- |
-| 1 | Amostrar 30 execuções estratificadas por arquitetura, regime e modalidade |
+| 1 | Amostrar **40** execuções estratificadas por arquitetura, regime e modalidade |
 | 2 | O autor rotula manualmente cada critério aplicável, **cego** aos vereditos do juiz |
-| 3 | O juiz avalia as mesmas 30 execuções |
-| 4 | Calcular acurácia e coeficiente kappa de Cohen **por critério** |
-| 5 | Reportar; critérios com kappa < 0,60 são reescritos ou excluídos da análise |
+| 3 | Separar 10 para calibração (few-shot) e 30 para validação (held-out) |
+| 4 | Construir o prompt do juiz usando **apenas** os 10 de calibração |
+| 5 | O juiz avalia as **30 de validação**, que nunca entraram no prompt |
+| 6 | Calcular acurácia e coeficiente kappa de Cohen **por critério** |
+| 7 | Reportar; critérios com kappa < 0,60 são reescritos ou excluídos da análise |
+
+> **Duas proteções independentes, ambas necessárias:** o *split* impede vazamento; a rotulação
+> **antes** de ver agregados impede viés de confirmação. Uma não substitui a outra.
 
 **Interpretação do kappa:**
 
@@ -650,6 +702,7 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | **L11** | **Tamanho do catálogo de tools difere entre arquiteturas.** A mono carrega 18 tools (~2.700 tokens), a multi ~8 por agente (~1.200). | Se a multi vencer, parte do ganho pode vir de contexto menor, não de isolamento de contexto. São mecanismos diferentes, ambos plausivelmente "efeito de contexto". Quantificado via M15, não eliminável sem descaracterizar as arquiteturas. |
 | **L12** | **Modelo do agente é proprietário.** O TAP cita "modelos abertos" como referência de viabilidade; Gemini é opção gratuita, não aberta. | A escolha decorre da cota — camadas gratuitas de provedores abertos dariam 91 a 181 dias. O eixo H3, com modelo aberto via OpenRouter, cobre parcialmente essa dimensão. Modelo, versão e limitações registrados conforme o TAP exige. |
 | **L13** | **A justificativa é validada pela API apenas por comprimento** (mínimo 20 caracteres, sem análise de conteúdo). | Não há rede de proteção externa contra justificativa vazia. A qualidade depende inteiramente do agente — o que é bom para a medição, mas significa que reformular até ser aceito é trivial. |
+| **L14** | **O eixo de modelo de H3 (P3.3) roda com 1 repetição sobre 13 dos 17 casos**, limitado pela cota de 50 req/dia do provedor do modelo menor. | P3.3 sustenta **direção**, não significância — não há repetições suficientes para teste estatístico. Reportado como observação direcional e explicitamente rotulado como tal na seção de resultados. |
 
 ---
 

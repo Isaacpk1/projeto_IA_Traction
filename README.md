@@ -200,8 +200,12 @@ make up            # http://localhost:8000/docs
 ### Alternativa — subir tudo com Docker
 
 ```bash
-docker compose up          # API + backend + front
+docker compose up          # API + backend + front + Langfuse
 ```
+
+O Compose sobe também o **Langfuse** (`http://localhost:3000`), onde cada execução do agente aparece
+como um trace navegável — passo a passo, tokens, custo e score do juiz. Ele é **opcional**: o trace
+canônico é gravado em JSONL no disco e nada depende do serviço estar de pé (ADR-14).
 
 ### Passo 2 — configurar este projeto
 
@@ -235,6 +239,19 @@ do provedor, ele pausa sozinho e prossegue no ciclo seguinte.
 uv run uvicorn backend.main:app --reload    # backend
 cd frontend && npm install && npm run dev   # front → http://localhost:5173
 ```
+
+O front tem **três telas**, e a divisão de trabalho com o Langfuse é deliberada:
+
+| Onde | Responde |
+| :--- | :--- |
+| **Console de atendimento** (front) | fila de chamados, status, resolução entregue, veredito do guardrail |
+| **Chat multi-turno** (front) | conversa com o agente sobre um chamado, com streaming |
+| **Dashboard de hipóteses** (front) | M1–M16 por braço, curva dose-resposta, veredito de H1–H4 |
+| **Langfuse** (link por execução) | **por que** o agente decidiu — spans, argumentos de cada tool, tokens, custo |
+
+O front mostra *o que o sistema faz* e *o que o experimento concluiu*; o Langfuse mostra *como o
+agente raciocinou*. Reimplementar inspeção de trace no front seria mais de um dia de trabalho para
+entregar algo pior — ver [`14`](docs/14-roadmap-e-testes.md) §3.
 
 ---
 
@@ -297,13 +314,31 @@ interpretável. Comparar mono uniforme com multi heterogêneo mudaria duas vari�
 ### Pirâmide de avaliação
 
 ```
-        ╱  LLM-as-judge   ╲   rubrica binária, 8 critérios
+        ╱  LLM-as-judge   ╲   DeepEval GEval · rubrica binária, 8 critérios
       ╱   programático     ╲  ancoragem, afirmações vedadas
     ╱    determinístico     ╲ trajetória, argumentos, decisão
 ```
 
 O nível determinístico cobre 7 dos 9 objetos de análise do enunciado sem custo nem ruído. O juiz é
 reservado ao que é genuinamente subjetivo.
+
+### Defesa em camadas — e onde o juiz NÃO está
+
+| Mecanismo | Quando age | Garantia | Bloqueia entrega? |
+| :--- | :--- | :--- | :--- |
+| Composição por `tier` | antes | determinística — a tool não existe | — |
+| Instrução no prompt | durante | probabilística | — |
+| **Guardrail (RF44)** | **depois** | **determinística** | **sim** |
+| Juiz LLM | fora do caminho | mede, não protege | **nunca** |
+
+O juiz avalia **depois da execução, em lote**. Pô-lo no caminho de entrega custaria latência, cortaria
+a vazão pela metade e — decisivo — faria H1 medir *agente + juiz* em vez da arquitetura do agente.
+
+Uma **quarta camada** está desenhada e fora do escopo: um agente adversarial que, antes de uma ação
+de impacto, investiga o mesmo caso instruído a **refutar** a conclusão. Ataca o modo de falha central
+do domínio — confirmação — e é a única camada independente do primeiro julgamento. Catalogada como
+**E-A6** ([`10`](docs/10-matriz-de-experimentos.md)) e priorizada como extra em
+[`14`](docs/14-roadmap-e-testes.md) §8.
 
 ### Controles metodológicos
 
@@ -367,10 +402,15 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | **L11** | **Catálogo de tools difere entre arquiteturas** (18 vs ~8 por agente) — parte de um eventual ganho da multi pode vir de contexto menor, não de isolamento |
 | **L12** | **Modelo do agente é proprietário** — Gemini é opção gratuita, não aberta; a escolha decorre da cota |
 | **L13** | **A API valida justificativa apenas por comprimento** (≥20 caracteres) — não há rede externa contra justificativa vazia |
+| **L14** | **O eixo de modelo de H3 roda com 1 repetição** (cota de 50 req/dia do provedor do modelo menor) — P3.3 sustenta direção, não significância |
 
 ---
 
 ## 8. Possibilidades de evolução
+
+> As direções abaixo estão **fora do escopo entregue**. Um subconjunto delas — as que cabem em horas,
+> não em semanas — está priorizado por valor ÷ custo em [`14`](docs/14-roadmap-e-testes.md) §8, para
+> ser executado apenas se o cronograma sobrar. Nada ali é compromisso.
 
 | # | Direção | Motivação |
 | :--- | :--- | :--- |
@@ -383,6 +423,7 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | 8 | **H4** — atribuição de modelo por papel vs. uniforme | Pergunta de produto; fora do escopo porque heterogeneidade tornaria H1 ininterpretável (RF33) |
 | 9 | Workers distribuídos em múltiplas máquinas | A fila com lease já suporta; não exercitado porque a cota é por conta, não por máquina |
 | 10 | **Entrada por Slack, e-mail e portal** | Cada origem é um adaptador fino sobre `POST /tickets` — o sistema externo empurra, então webhook, não MCP (ADR-12) |
+| 10b | **Verificação adversarial antes de agir** — segundo agente instruído a refutar a conclusão antes de ação de impacto. Ataca o modo de falha central do domínio (confirmação); catalogado como E-A6 |
 | 11 | **Escalonamento notificando sistemas externos** | Hoje escalar chama o endpoint da API. Notificar Slack ou abrir item no Jira entra pela porta `ToolProvider` como tool de `tier: impact` — é aqui que um **cliente MCP** consumindo servidores prontos se paga (ADR-12) |
 | 7 | *Sampling* do MCP para pré-processamento de espectro | Reduz ruído de contexto — excluído deste recorte por contaminar a medição |
 
@@ -393,19 +434,19 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | Documento | Conteúdo |
 | :--- | :--- |
 | [`01-visao.md`](docs/01-visao.md) | Contexto, problema, escopo, restrições, riscos |
-| [`02-personas-user-stories.md`](docs/02-personas-user-stories.md) | 8 personas derivadas dos perfis reais da API · 24 user stories |
-| [`03-requisitos.md`](docs/03-requisitos.md) | 32 RF · 15 RNF com critério de aceitação mensurável |
-| [`04-casos-de-uso.md`](docs/04-casos-de-uso.md) | 10 casos de uso UML com fluxos principais, alternativos e de exceção |
-| [`05-arquitetura.md`](docs/05-arquitetura.md) | C4 níveis 1–3 · contratos de dados · stack · 6 ADRs |
+| [`02-personas-user-stories.md`](docs/02-personas-user-stories.md) | 8 personas derivadas dos perfis reais da API · 27 user stories em 6 épicos |
+| [`03-requisitos.md`](docs/03-requisitos.md) | 44 RF · 19 RNF com critério de aceitação mensurável |
+| [`04-casos-de-uso.md`](docs/04-casos-de-uso.md) | 12 casos de uso UML com fluxos principais, alternativos e de exceção |
+| [`05-arquitetura.md`](docs/05-arquitetura.md) | C4 níveis 1–3 · contratos de dados · **14 ADRs** |
 | [`06-matriz-rastreabilidade.md`](docs/06-matriz-rastreabilidade.md) | Persona → US → RF → UC → cenário → métrica → hipótese |
-| [`07-plano-experimental.md`](docs/07-plano-experimental.md) | Hipóteses, variáveis, desenho, 15 métricas, rubrica, meta-avaliação |
+| [`07-plano-experimental.md`](docs/07-plano-experimental.md) | 4 hipóteses, 13 predições, variáveis, desenho, 17 métricas, rubrica, meta-avaliação |
 | [`08-glossario.md`](docs/08-glossario.md) | Glossário de domínio industrial e de engenharia de agentes |
 | [`09-system-design.md`](docs/09-system-design.md) | Fila com lease, IDs e correlação, taxonomia de falhas, orçamento de tokens, provedores e vazão, contratos do BFF, empacotamento, armazenamento |
 | [`10-matriz-de-experimentos.md`](docs/10-matriz-de-experimentos.md) | Catálogo de todas as perguntas testáveis — declaradas, candidatas e descartadas — com custo, valor e portfólio |
 | [`11-camada-de-analise.md`](docs/11-camada-de-analise.md) | Pipeline trace → métrica → veredito → estatística → visualização; a fronteira execução↔análise, versionamento, cache de julgamento, dose-resposta |
 | [`12-stack.md`](docs/12-stack.md) | Cada tecnologia: onde é usada, por que foi escolhida, o que foi descartado no lugar |
 | [`13-padroes-e-estrutura.md`](docs/13-padroes-e-estrutura.md) | Monolito modular vs o espectro, estilo hexagonal (e por que não Clean), regra de dependência, estrutura de pastas, padrões adotados e descartados |
-| [`14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md) | Cronograma dia a dia, go/no-go de 31/08, estratégia de TDD com fakes, pirâmide de testes, plano de contingência |
+| [`14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md) | Cronograma dia a dia, escada de visibilidade (Langfuse × front), go/no-go de 31/08, estratégia de TDD com fakes, pirâmide de testes, **lista de extras priorizada**, plano de contingência |
 
 ### Cobertura
 
@@ -413,11 +454,11 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | :--- | ---: | ---: |
 | Chamados do material | 17 | **100%** |
 | User stories | 27 | **100%** |
-| Requisitos | 61 | **100%** |
+| Requisitos | 63 | **100%** |
 | Hipóteses | 4 | **100%** |
 | Casos de uso | 12 | **100%** |
 | Modos de degradação | 7 | **100%** |
-| Métricas | 16 | **100%** |
+| Métricas | 17 | **100%** |
 
 ---
 

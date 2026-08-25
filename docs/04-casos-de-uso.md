@@ -48,7 +48,7 @@ os habilitados por sua permissão):
    │   ┌────────────────────────┐                 ▼                   │
    │   │ UC-02 Investigar       │       ┌───────────────────┐         │
    │   │       condição do ativo│──────►│ UC-09 Consultar   │         │
-   │   └───────────┬────────────┘       │  API via MCP      │         │
+   │   └───────────┬────────────┘       │  API via tools    │         │
    │               │ «extend»           └───────────────────┘         │
    │   ┌───────────▼────────────┐                 ▲                   │
    │   │ UC-03 Reconciliar      │                 │                   │
@@ -647,7 +647,7 @@ lacuna (RF09), ou escala.
 
 ---
 
-## UC-09 — Consultar API via MCP *(caso de uso de inclusão)*
+## UC-09 — Consultar API via camada de ferramentas *(caso de uso de inclusão)*
 
 | | |
 | :--- | :--- |
@@ -661,24 +661,24 @@ lacuna (RF09), ou escala.
 | # | Ação |
 | :-- | :--- |
 | 1 | O agente emite chamada de tool com nome e argumentos |
-| 2 | O cliente MCP encaminha a requisição ao servidor por JSON-RPC |
-| 3 | O servidor valida os argumentos contra o schema da tool **(RNF13)** |
-| 4 | O servidor traduz a chamada em requisição HTTP, incluindo o cabeçalho de identificação do usuário |
-| 5 | O servidor recebe a resposta da API |
-| 6 | O servidor registra a chamada completa no trace **(RNF07)** |
-| 7 | O servidor retorna o resultado ao cliente |
+| 2 | O `ToolProvider` encaminha a chamada ao adaptador configurado (in-process por padrão) |
+| 3 | O adaptador valida os argumentos contra o schema da tool **(RNF13)** |
+| 4 | O executor traduz a chamada em requisição HTTP, incluindo o cabeçalho de identificação do usuário |
+| 5 | O executor recebe a resposta da API |
+| 6 | O `TraceEmitter` registra a chamada completa **(RNF07)** |
+| 7 | O resultado retorna ao agente; se o envelope MCP estiver habilitado, o transporte é JSON-RPC |
 
 ### Fluxos de exceção
 
 **FE-09.1 — Argumentos inválidos**
-→ O servidor retorna erro de validação **sem chamar a API**. O erro é observável pelo agente, que
+→ O adaptador retorna erro de validação **sem chamar a API**. O erro é observável pelo agente, que
 pode corrigir.
 
 **FE-09.2 — Falha transitória de rede**
 → Nova tentativa com recuo exponencial (RNF04). O trace registra todas as tentativas.
 
 **FE-09.3 — Resposta fora do schema esperado**
-→ O servidor registra a divergência e repassa o retorno cru ao agente, sinalizando a anomalia. Não
+→ O adaptador registra a divergência e repassa o retorno cru ao agente, sinalizando a anomalia. Não
 descarta silenciosamente.
 
 ---

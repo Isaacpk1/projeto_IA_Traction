@@ -81,13 +81,14 @@ agir ou escalar — acompanhado do **arnês de avaliação** que mede sua confia
 
 ### 4.0 Por que produto, e por que isso fortalece o experimento
 
-As três hipóteses deixam de ser perguntas acadêmicas e passam a ser **decisões que qualquer um que
+As quatro hipóteses deixam de ser perguntas acadêmicas e passam a ser **decisões que qualquer um que
 coloque um agente em produção precisa tomar**:
 
 | Hipótese | Como decisão de produto |
 | :--- | :--- |
 | **H1** mono vs multi-agente | *Que arquitetura eu coloco em produção?* |
 | **H2** garantia estrutural vs instrução | *Como impeço o agente de executar ação indevida no cliente?* |
+| **H3** overlay semântico | *Quanto a descrição das ferramentas muda o comportamento?* |
 | **H4** modelo por papel | *Quanto economizo baixando o modelo nos papéis fáceis?* |
 
 Responder isso com evidência, e não com opinião, é o diferencial declarado do projeto.
@@ -96,7 +97,7 @@ A solução tem cinco componentes:
 
 | # | Componente | Descrição |
 | :-- | :--- | :--- |
-| **1** | **Camada de integração MCP** | Servidor MCP em duas camadas: um núcleo genérico que converte qualquer contrato OpenAPI em tools, e um *overlay* declarativo que injeta semântica de domínio e classifica cada tool por nível de impacto (`read` / `impact`). |
+| **1** | **Camada de ferramentas** | Biblioteca em duas camadas: núcleo genérico que converte contrato OpenAPI em tools e *overlay* declarativo que injeta semântica de domínio. Um envelope MCP é opcional e não participa do caminho padrão. |
 | **2** | **Sistema de agentes** | Grafo com orquestrador e três agentes especializados — Contextualizador, Investigador e Executor — espelhando as três modalidades de atendimento do enunciado. A separação garante, por construção, que agentes de investigação não possam executar ações. |
 | **3** | **Framework de avaliação** | Golden dataset derivado e ampliado a partir dos 17 chamados; runner durável e paralelo; métricas determinísticas de trajetória, argumentos e decisão; e rubrica binária avaliada por LLM-as-judge com meta-avaliação contra rotulação humana. |
 | **4** | **Ingestão e fila de atendimento** | Ponto de entrada para tickets (`POST /tickets`), fila durável com prioridade derivada da criticidade do ativo, e sessão multi-turno por ticket. O mesmo worker atende ticket de cliente e caso da suíte. |
@@ -115,9 +116,12 @@ o atendimento sozinho até a resolução, com escalonamento humano como saída e
 
 ### 4.2 Hipótese central
 
-> **Isolamento de contexto por especialização de agentes reduz o erro de investigação em casos de
-> evidência degradada ou conflitante, mas introduz perda de informação na fronteira de handoff.
-> O saldo é positivo quando o handoff é estruturado e negativo quando é textual.**
+> **A arquitetura multi-agente especializada apresentará maior acerto que a mono conforme a
+> degradação aumenta, ao custo potencial de perda de informação no handoff.**
+
+O contraste principal compara **arquiteturas completas**. Ele não atribui sozinho eventual diferença
+exclusivamente ao isolamento de contexto, porque catálogo de tools, quantidade de chamadas e
+handoffs também mudam. Experimentos de mecanismo são extensões separadas.
 
 O detalhamento das hipóteses, variáveis e método está em
 [`07-plano-experimental.md`](./07-plano-experimental.md).

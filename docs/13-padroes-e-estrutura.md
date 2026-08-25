@@ -140,27 +140,36 @@ Cada regra sustenta um requisito que já existe:
 | `agents/` importa `tools/` só via porta | **RF12 / RNF05** — composição por `tier` |
 | Ninguém importa `interfaces/` | Entrypoints são folhas, nunca dependência |
 
-**A regra vira teste.** O mesmo estilo de invariante do RNF02 e RNF05:
+**A regra vira contrato verificado** — `import-linter`, declarado em `pyproject.toml`:
 
-```python
-# tests/test_architecture.py
-PROIBIDO = {
-    "src/analysis":   ["src.agents", "src.tools", "google", "openai"],
-    "src/core":       ["src.agents", "src.tools", "src.evaluation",
-                       "src.analysis", "src.interfaces"],
-    "src/tools/core": ["baseline", "rms", "spectrum", "asset"],   # RNF06
-}
+```toml
+[[tool.importlinter.contracts]]
+name = "Camadas"
+type = "layers"
+layers = ["interfaces", "agents | tools | evaluation | analysis | intake", "core"]
 
-def test_regra_de_dependencia():
-    for pasta, proibidos in PROIBIDO.items():
-        for arquivo in Path(pasta).rglob("*.py"):
-            arvore = ast.parse(arquivo.read_text())
-            for no in ast.walk(arvore):
-                if isinstance(no, (ast.Import, ast.ImportFrom)):
-                    modulo = getattr(no, "module", "") or ""
-                    for proibido in proibidos:
-                        assert proibido not in modulo, f"{arquivo} importa {proibido}"
+[[tool.importlinter.contracts]]
+name = "Análise não conhece execução"
+type = "forbidden"
+source_modules = ["src.analysis"]
+forbidden_modules = ["src.agents", "src.tools", "google.genai", "openai"]
+
+[[tool.importlinter.contracts]]
+name = "Módulos independentes"
+type = "independence"
+modules = ["src.agents", "src.tools", "src.evaluation", "src.analysis", "src.intake"]
+
+[[tool.importlinter.contracts]]
+name = "Núcleo de ferramentas sem domínio"
+type = "forbidden"
+source_modules = ["src.tools.core"]
+forbidden_modules = ["src.tools.overlays"]
 ```
+
+> ⚠️ **Por que não um verificador de AST próprio.** Um checker caseiro pega **import direto**. O
+> `import-linter` pega **import indireto** — cadeias através de módulos intermediários. Se
+> `analysis/` importasse `utils/`, e `utils/` importasse `agents/`, o checker caseiro passaria — e a
+> promessa de que a análise roda sem SDK de LLM seria falsa sem ninguém notar.
 
 > Sem esse teste, a regra é intenção. Com ele, é garantia — e um `import` errado quebra o build.
 

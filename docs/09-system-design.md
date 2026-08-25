@@ -50,10 +50,11 @@ raciocínio 150:
 94% mais tokens. O valor 12 que constava originalmente em RF16 foi escolhido sem cálculo; foi
 corrigido para **8** após esta análise.
 
-**② A arquitetura multi é ~21% mais barata por execução** — apenas porque cada agente carrega menos
-catálogo. Isso tem dois efeitos opostos que precisam ser declarados:
+**② Uma chamada de especialista multi carrega ~21% menos contexto estimado** — porque cada papel
+recebe catálogo menor. Isso não significa que a execução multi completa seja mais barata: ela pode
+fazer mais chamadas e envolver mais agentes. O custo total é medido por braço.
 
-- *Operacionalmente:* a arquitetura multi cabe melhor no orçamento
+- *Operacionalmente:* cada chamada pode ser menor, mas a execução completa pode custar mais
 - *Metodologicamente:* é um confundidor de H1 — se a multi vencer, parte do ganho pode vir de
   contexto menor, não de isolamento de contexto. Registrado como limitação **L11**
 
@@ -73,28 +74,31 @@ catálogo. Isso tem dois efeitos opostos que precisam ser declarados:
 
 ## 3. Provedores, cotas e vazão
 
-### 3.1 Cotas verificadas (agosto/2026)
+### 3.1 Referências de cota — validar na conta
 
 | Provedor | Modelo | RPM | RPD | TPM | TPD |
 | :--- | :--- | ---: | ---: | ---: | ---: |
-| **Google AI Studio** | Gemini 2.5 Flash | 15 | **1.500** | 1M | — |
-| **Groq** | `compound` | 30 | 250 | 70K | — |
+| **Google AI Studio** | Gemini 2.5 Flash | variável | variável | variável | — |
 | **Groq** | `gpt-oss-120b` | 30 | 1.000 | 8K | 200K |
 | **OpenRouter** | `:free` sem créditos | 20 | 50 | — | — |
 | **OpenRouter** | `:free` com US$10 | 20 | 1.000 | — | — |
 
-### 3.2 Vazão resultante
+Os valores públicos mudam por plano, projeto e modelo. A tabela é referência para o piloto, não
+premissa de cronograma. O limite efetivo é registrado a partir dos headers e do console da conta.
 
-Com ~8 chamadas de LLM por execução do agente e 1 chamada por julgamento:
+### 3.2 Vazão resultante do piloto
+
+O teto de oito passos é **por agente**, portanto A, B e C têm custos distintos. A vazão é calculada
+com o p95 observado de chamadas por execução:
 
 | Papel | Provedor | Limite mordente | Vazão |
 | :--- | :--- | :--- | ---: |
-| **Agente** | Gemini 2.5 Flash | RPD 1.500 | **187 execuções/dia** |
-| **Juiz** | Groq `compound` | RPD 250 | **250 julgamentos/dia** |
-| **Eixo H3** | OpenRouter `:free` | RPD 50 | 6 execuções/dia |
+| **Agente A/B/C** | Gemini | menor limite observado | `RPD / p95(chamadas por execução do braço)` |
+| **Juiz** | Groq `openai/gpt-oss-120b` | menor limite observado | definida pelo piloto |
+| **Extensão P3.3** | OpenRouter `:free` | RPD observado | fora do núcleo |
 
-> **TPM não é gargalo com Gemini.** Nosso pico por chamada é ~11K tokens contra 1M disponíveis —
-> folga de ~90×. O teto que morde é o de **requisições diárias**.
+> RPM, RPD e tokens são medidos no piloto. Nenhum deles é descartado por estimativa antes da
+> primeira execução real.
 
 ### 3.3 Atribuição de modelo por papel
 
@@ -121,8 +125,8 @@ simultaneamente, e nenhuma análise posterior separaria os efeitos. O runner val
 6 execuções. Inviável como "modelo forte" no investigador. A heterogeneidade viável é reduzir a
 capacidade nos papéis fáceis, que por acaso é a decisão real de quem coloca um agente em produção.
 
-**Vantagem operacional:** as cotas são **por modelo**. Flash-Lite tem 1.500 req/dia próprias, então o
-braço C quase não disputa capacidade com E1.
+**Validação operacional:** o piloto verifica se Flash e Flash-Lite possuem cotas independentes na
+conta usada. H4 permanece condicional até essa confirmação.
 
 ```
                         ▲
@@ -378,7 +382,9 @@ erro do agente com instabilidade de rede.
 
 ### 5.2 Propagação da correlação
 
-O contexto de execução chega ao servidor MCP no **handshake**, não como argumento de tool:
+No caminho padrão in-process, o worker passa `run_id` e `execution_id` diretamente ao
+`TraceEmitter`. Se o envelope MCP opcional estiver habilitado, o mesmo contexto chega no handshake,
+não como argumento de tool:
 
 ```
 initialize {
@@ -387,7 +393,7 @@ initialize {
 }
 ```
 
-O servidor carimba todo `call_id` com esse contexto. **O agente não sabe que isso existe** — nenhuma
+O adaptador carimba todo `call_id` com esse contexto. **O agente não sabe que isso existe** — nenhuma
 poluição de schema, nenhum risco de o modelo errar o identificador.
 
 Isso só funciona porque a decisão é **um subprocesso MCP por worker** (§7.2). Com servidor
@@ -517,7 +523,7 @@ arquivo que acompanha o repositório.
 **Reversibilidade.** A fila é acessada por uma interface (`enqueue`, `lease`, `complete`, `fail`).
 Trocar o backend não tocaria no runner.
 
-### 7.4 Decisão: um subprocesso MCP por worker
+### 7.4 Envelope MCP opcional: um subprocesso por worker
 
 MCP stdio é conexão **1:1** por subprocesso. Duas opções existiam:
 
@@ -526,16 +532,16 @@ MCP stdio é conexão **1:1** por subprocesso. Duas opções existiam:
 | **Um por worker** ✅ | Correlação ambiente e correta; isolamento de falha; sem estado compartilhado | N processos |
 | Compartilhado | Menos processos | Correlação de trace quebra; `run_id` teria que ir como argumento de tool, poluindo schema e sujeito a erro do modelo |
 
-**Escolhido: um por worker.** O servidor MCP é um invólucro HTTP fino e sem estado — spawnar 5–8
-custa memória desprezível. O ganho em correção de correlação é decisivo.
+**Se habilitado, escolher um por worker.** O caminho padrão não cria subprocesso: chama o
+`ToolProvider` in-process. Esta seção apenas fixa a topologia do envelope opcional.
 
 ### 7.5 Ciclo de vida do subprocesso
 
 ```
 runner inicia worker
-   ├─ spawn do servidor MCP (stdio)
-   ├─ handshake initialize (carrega run_id, execution_id)
-   ├─ tools/list → catálogo filtrado por tier conforme o papel
+   ├─ ToolProvider in-process (padrão)
+   ├─ opcional: spawn MCP + handshake initialize
+   ├─ catálogo filtrado por tier conforme o papel
    ├─ loop: lease → executar → registrar → liberar
    │    └─ a cada nova task: novo execution_id via notification
    └─ ao encerrar: shutdown gracioso do subprocesso
@@ -693,34 +699,30 @@ consumo_hoje aproxima de 1.500
 
 ### 11.1 Orçamento por experimento
 
-| Experimento | Hipótese | Execuções | Chamadas | Dias a 187/dia |
-| :--- | :--- | ---: | ---: | ---: |
-| **E1** — A vs B, 8 seeds × 2 reps | H1 | 544 | ~4.352 | 2,9 |
-| **E4** — B vs C (Flash-Lite, cota separada) | H4 | 272 | ~2.176 | 1,5 |
-| **E2** — adversariais, A vs B vs C | H2 | 75 | ~600 | 0,4 |
-| **E3** — overlay, amostra | H3 | 130 | ~1.040 | 0,7 |
-| **Julgamento** — Groq, 250/dia | — | — | 1.021 | 4,1 (paralelo) |
-| **Total** | | **1.021** | **~8.168** | **≈ 5,5** |
+| Experimento | Hipótese | Execuções | Status | Prazo |
+| :--- | :--- | ---: | :--- | :--- |
+| **E1** — A vs B, 8 seeds × 2 reps | H1 | 544 | núcleo | calcular após piloto A/B |
+| **E2** — adversariais, A vs B | H2 | 50 | núcleo | calcular após piloto A/B |
+| **Núcleo** | | **594** | obrigatório | precisa caber na janela medida |
+| **E3** — overlay pareado | H3 | +34 | condicional | só após o núcleo |
+| **E4** — B vs C | H4 | +272 | condicional | só após piloto C |
+| **Máximo** | | **900** | com extensões | não é compromisso do núcleo |
 
 ### 11.2 Folga
 
-Com 15 dias de projeto e ~5,5 dias de execução, restam ~9 dias para implementar, analisar e
-apresentar — com margem para uma rodada piloto antes da definitiva. Isso importa: a primeira rodada
-de qualquer experimento revela problemas de medição, e refazer não pode ser inviável.
-
-O braço C consome a cota do **Flash-Lite**, separada da do Flash — na prática E4 quase não disputa
-capacidade com E1.
+Não há prazo numérico defensável antes do piloto. Se o núcleo não couber, reduzem-se repetições ou
+seeds conforme o plano de contingência; E3 e E4 são cortados primeiro.
 
 ### 11.3 Sequência recomendada
 
 | Fase | Execuções | Objetivo |
 | :--- | ---: | :--- |
-| 1. Medição de cota | ~50 | Confirmar limites reais antes de qualquer desenho |
+| 1. Medição de cota | amostra mínima | Confirmar limites e chamadas por execução em A/B/C |
 | 2. Piloto | ~20 | Inspecionar traces à mão; corrigir instrumentação |
 | 3. Rotulação cega | — | Rotular amostra **antes** de ver agregados |
-| 4. E1 + E4 + E2 | 891 | Rodada definitiva |
-| 5. Julgamento | 1.021 | Rubrica + meta-avaliação |
-| 6. E3 | 130 | Condicional |
+| 4. E1 + E2 | 594 | Rodada definitiva do núcleo |
+| 5. Julgamento | 594 | Rubrica + meta-avaliação |
+| 6. E3 / E4 | +34 / +272 | Condicionais, nessa ordem de custo |
 
 ---
 
@@ -732,7 +734,7 @@ considerada.
 | Não construído | Motivo |
 | :--- | :--- |
 | **Workers distribuídos em várias máquinas** | A cota é **por conta**, não por máquina. Mais máquinas produzem zero execuções adicionais. A fila com lease suporta workers stateless sem alteração — a arquitetura está pronta, o exercício é que não se justifica |
-| **Broker de mensagens (Redis Streams, RabbitMQ) como adaptador da fila** | A porta `WorkQueue` admite qualquer backend. Em escala real de produção — múltiplas máquinas, milhares de tickets/dia — o adaptador seria Redis Streams ou RabbitMQ. Não implementado porque **a cota do provedor satura antes da fila**: a ~8 chamadas por ticket, a camada gratuita do Gemini entrega ~187 tickets/dia, três ordens de grandeza abaixo do que o SQLite sustenta. Trocar o adaptador não toca runner nem agentes |
+| **Broker de mensagens (Redis Streams, RabbitMQ) como adaptador da fila** | A porta `WorkQueue` admite qualquer backend. Em escala real de produção — múltiplas máquinas, milhares de tickets/dia — o adaptador seria Redis Streams ou RabbitMQ. Não implementado porque a cota do provedor satura muito antes da capacidade local do SQLite; o piloto registra a diferença real. Trocar o adaptador não toca runner nem agentes |
 | **Roteamento entre múltiplos provedores para o agente** | Multiplicaria a vazão, mas exigiria que tasks diferentes rodassem em modelos diferentes — o que contamina E1. O roteamento fica restrito ao eixo H3, onde o modelo **é** a variável |
 | **Controlador AIMD como mecanismo primário** | A cota do Gemini é documentada e constante. Token bucket na taxa conhecida basta; AIMD fica como rede de segurança |
 | **Sampling do MCP para pré-processar retornos** | Reduziria contexto, mas inserir inferência de LLM dentro da ferramenta contamina a medição do comportamento do agente |
@@ -767,4 +769,4 @@ considerada.
 | **RNF14** | Atendido por Docker Compose — §7.2, ADR-10 |
 | **RNF17** *(novo)* | Coordenação efêmera sem perda de estado durável — ADR-11 e `11-camada-de-analise.md` §8 |
 | **L11** *(nova limitação)* | Diferença de tamanho de catálogo entre arquiteturas como confundidor de H1 — §2.1 |
-| **H4** | Promovida a hipótese **declarada** (braço C, E4). RF33 emendado para admitir heterogeneidade quando a arquitetura é constante — §3.3 |
+| **H4** | Mantida como hipótese **condicional** (braço C, E4). RF33 admite heterogeneidade somente quando a arquitetura é constante — §3.3 |

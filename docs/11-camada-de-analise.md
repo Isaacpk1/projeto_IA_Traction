@@ -301,6 +301,46 @@ nova rodada de execuções. Isso é o que torna aceitável descobrir problemas d
 
 ## 5. Estágio ② — Julgamento
 
+### 5.0 O juiz está FORA do caminho de entrega
+
+Esta é a fronteira mais importante desta camada:
+
+```
+agente produz resolução
+        ▼
+┌────────────────────────────────┐
+│  GUARDRAIL — RF44              │  V1 · V2 · V3
+│  determinístico · ~1 ms · grátis│  NO caminho de entrega
+└──────┬──────────────────┬──────┘
+    passa              falha
+       ▼                  ▼
+  entrega ao         escala para
+  solicitante        humano
+       └────────┬─────────┘
+                ▼
+          trace persistido
+                ▼
+   ┌────────────────────────────┐
+   │  JUIZ LLM — C1..C8         │  FORA do caminho
+   │  depois · em lote · 1 dia  │  mede, não protege
+   │  atrás                     │
+   └────────────────────────────┘
+```
+
+**O que protege é determinístico. O que mede é o juiz.** Nunca o contrário.
+
+| | Guardrail (RF44) | Juiz LLM |
+| :--- | :--- | :--- |
+| Quando | antes de entregar | depois, em lote |
+| Custo | ~1 ms, grátis | 1 chamada de cota |
+| Determinístico | ✅ | ❌ |
+| Bloqueia entrega? | **sim** | **nunca** |
+| Validado? | por construção | só após a meta-avaliação |
+
+Três razões para o juiz não bloquear: **latência** (mais uma chamada por ticket), **cota** (cairia de
+187 para ~93 tickets/dia) e — decisiva — **contaminação**: um juiz no caminho crítico faria H1 medir
+*agente + juiz*, não a arquitetura. Soma-se que ele só é validado depois da meta-avaliação.
+
 ### 5.1 O que vai para o juiz
 
 O juiz recebe **a resolução e o trace resumido** — nunca o gabarito (RNF02 vale aqui também).
@@ -337,6 +377,21 @@ APPLICABILITY = {
 **Por que decidir isso em código, e não deixar o juiz decidir.** Se o juiz julgar a aplicabilidade,
 ele pode marcar `not_applicable` para se esquivar de um critério difícil — e a taxa de `false` cai
 sem que a qualidade tenha subido. Determinar aplicabilidade fora do juiz fecha essa saída.
+
+### 5.2b Implementação — DeepEval `GEval`
+
+```python
+GEval(
+    name="C1_baseline_declarado",
+    evaluation_steps=[...],   # EXPLÍCITOS — a documentação avisa que só `criteria`
+                              # regenera o raciocínio a cada execução (fere RNF01)
+    strict_mode=True,         # binário, alinhado à rubrica (RF26)
+    model=modelo_groq,        # RNF09
+)
+```
+
+A aplicabilidade (§5.2) continua decidida **em código, antes** de chamar o juiz — o DeepEval não
+decide isso por nós, e não deve.
 
 ### 5.3 Cota e lote
 
@@ -604,6 +659,8 @@ não tem volume: é efêmero por design.
 | **RA-05** | Métricas `N/A` tratadas como zero na agregação | Teste com execuções mono, onde M14 é indefinida | Coluna `applicable`; agregação filtra antes de somar |
 | **RA-06** | Teste de diferença usado onde cabia não-inferioridade (H4) | Revisão do plano estatístico | Declarado em §6.2 antes da execução |
 | **RA-07** | Redis indisponível durante a rodada | Falha de conexão | Streaming degrada; execução e persistência continuam |
+| **RA-08** | Guardrail converte "agir" em "escalar" e contamina M4 | M4 divergindo de `resolution.decision` | Métricas leem `resolution` (agente), nunca `delivered` (entregue). M16 mede o guardrail à parte |
+| **RA-09** | `GEval` com raciocínio auto-gerado varia entre execuções | Vereditos instáveis no mesmo trace | `evaluation_steps` explícitos + `strict_mode`; verificado no piloto |
 
 ---
 
@@ -615,3 +672,4 @@ não tem volume: é efêmero por design.
 | **RF35** *(novo)* | Aplicabilidade de métrica e de critério registrada explicitamente, distinta de valor zero |
 | **RF36** *(novo)* | Julgamentos em cache por `(execução, rubrica, juiz)`, evitando gasto redundante de cota |
 | **RNF17** *(novo)* | Coordenação entre processos (eventos, rate limit, cota) sem perda de estado durável em caso de falha da camada efêmera |
+| **RF44** | Guardrail determinístico no caminho de entrega; juiz LLM explicitamente fora dele |

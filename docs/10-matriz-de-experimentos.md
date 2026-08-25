@@ -84,6 +84,48 @@ Cada entrada deste catálogo declara seis campos:
 
 ---
 
+### E-A6 · Verificação adversarial antes de agir 🔵 CANDIDATO ⭐
+
+| | |
+| :--- | :--- |
+| **Comparação** | Com **vs** sem um segundo agente que, antes de uma ação de impacto, investiga o mesmo caso com enquadramento **adversarial** — instruído a refutar a conclusão |
+| **Constante** | Arquitetura, modelo, tools, casos |
+| **Permite concluir** | Se verificação independente reduz o falso "agir" — o erro de maior custo do sistema |
+| **Custo** | +~300 execuções (dispara em ~30% dos casos, os de decisão `agir`) |
+| **Valor** | **Alto** — ataca diretamente o modo de falha central do domínio |
+
+> **Por que encaixa neste domínio especificamente.** O modo de falha central aqui é **confirmação**:
+> o agente vê `imbalance, confidence 0.87` e confirma. Um agente instruído a refutar iria procurar o
+> `baseline_state_at_detection: invalidated`, o pico em 1× baixo que não sustenta o diagnóstico, e a
+> análise conflitante do especialista — que é **exatamente a trajetória do gabarito do TKT-INV-06**.
+>
+> A ideia não é genérica: ela reproduz o raciocínio que o gabarito considera correto.
+
+**Duas leituras possíveis, e elas custam diferente:**
+
+| Como | Custo | Natureza |
+| :--- | :--- | :--- |
+| **Quinto braço experimental** | +272 execuções, +1,5 dia | uma **quinta hipótese** — com 4 já declaradas e 7 dias até o núcleo, não cabe |
+| **Quarta camada de defesa** (ADR-13) | +~300 execuções | **segurança de produto**, mensurável pela taxa de falso "agir" capturado |
+
+A segunda leitura é mais forte: estende a defesa em camadas com um mecanismo de natureza distinta —
+probabilístico, mas **independente** do primeiro julgamento.
+
+```
+Composição por tier      antes           determinística
+Instrução no prompt      durante         probabilística
+Guardrail V1·V2·V3       depois          determinística
+Advogado do diabo        antes de AGIR   probabilística e independente  ← E-A6
+```
+
+**Status.** Fora do ciclo atual, mas **desenhado por inteiro** — prompt, protocolo de confronto,
+critério de desempate e métrica ficam registrados aqui. É o item **#4 da lista de extras** em
+[`14-roadmap-e-testes.md`](./14-roadmap-e-testes.md) §8: entra se o go/no-go de 31/08 passar com
+folga e se couber inteiro no tempo restante. Se não couber, vai à apresentação como **Trabalho
+Futuro com desenho pronto** — o que vale mais que uma implementação apressada e não medida.
+
+---
+
 ### E-A4 · Resolução estruturada vs texto livre 🔵 CANDIDATO
 
 | | |
@@ -327,9 +369,10 @@ Executar **apenas** se o cronograma real permitir, e sempre com predições escr
 | ---: | :--- | ---: | :--- |
 | 1 | **E-V2** | +594 julgamentos | Não exige reexecutar o agente. Custo mais baixo do catálogo |
 | 2 | **E-T2** | +272 execuções | Resolve L11 — converte uma limitação declarada em achado |
-| 3 | **E-A3** | +272 execuções | Valida o ADR-05, hoje uma decisão não demonstrada |
-| 4 | E-V4 | +272 execuções | Valida a ampliação do dataset antes de confiar nela |
-| 5 | E-P1 | +272 execuções | Separa efeito de prompt de efeito de arquitetura |
+| 3 | **E-A6** | +~300 execuções | Ataca o modo de falha central do domínio; estende a defesa em camadas |
+| 4 | **E-A3** | +272 execuções | Valida o ADR-05, hoje uma decisão não demonstrada |
+| 5 | E-V4 | +272 execuções | Valida a ampliação do dataset antes de confiar nela |
+| 6 | E-P1 | +272 execuções | Separa efeito de prompt de efeito de arquitetura |
 
 ### 9.3 Descartados — e por quê
 
@@ -385,4 +428,5 @@ predição refutada é resultado; uma predição omitida é viés.
 | 24/08 | E-A1, E-S1, E-T1, E-V1 no núcleo | Cobrem as hipóteses declaradas originalmente |
 | 24/08 | E-A2 (H4) promovido a declarado | Cota resolvida com Gemini; +272 execuções cabem no prazo |
 | 24/08 | E-T2 e E-V2 identificados como melhores candidatos | Alto valor, custo baixo; E-T2 resolve L11 |
+| 24/08 | **E-A6** (verificação adversarial) registrado como candidato prioritário | Encaixe direto no modo de falha do domínio; entra se houver folga, não agora |
 | 24/08 | E-A5, E-P3, E-T3, E-A4, E-V3 descartados | Custo desproporcional ao que acrescentam |
