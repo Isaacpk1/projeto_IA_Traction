@@ -11,11 +11,18 @@ avaliação** que mede sua confiabilidade.
 > O mesmo worker que processa um ticket de cliente processa um caso da suíte, pelo mesmo caminho de
 > código (RF39) — é isso que garante que a avaliação mede o sistema real.
 
-> **Status:** documentação de engenharia concluída · implementação iniciando.
+> **Status em 26/08/2026:** fundação e camada de tools implementadas; agente e execução ponta a
+> ponta ainda não disponíveis.
 > Cronograma, estratégia de testes e plano de contingência em
 > [`docs/14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md).
 > As seções de **Resultados** estão marcadas como pendentes e serão preenchidas após a execução dos
 > experimentos.
+
+**Implementado agora:** contratos e portas do núcleo, fakes de teste, invariantes arquiteturais,
+parser OpenAPI, overlay semântico, catálogo por `tier`, executor HTTP, dry-run de ações e
+especificações declarativas dos papéis. **Próximo marco:** loop ReAct mono, adaptador Gemini e trace
+JSONL. A estrutura completa descrita abaixo é a arquitetura-alvo, não uma alegação de que todos os
+componentes já existem.
 
 ---
 
@@ -52,7 +59,8 @@ saída explícita. Ações de impacto exigem confirmação.
 
 1. **Atendimento** — ingestão contínua, fila durável com prioridade derivada, sessão multi-turno,
    console de operação.
-2. **Agentes** — camada MCP gerada do contrato OpenAPI com overlay de domínio; duas arquiteturas
+2. **Agentes** — camada de tools gerada do contrato OpenAPI com overlay de domínio; envelope MCP
+   opcional; duas arquiteturas
    comparáveis (mono-agente ReAct e multi-agente especializado).
 3. **Avaliação** — golden dataset formalizado, runner durável, métricas determinísticas, rubrica
    binária com LLM-as-judge validado por meta-avaliação.
@@ -65,7 +73,7 @@ produção precisa tomar**:
 | Hipótese | Como decisão de produto |
 | :--- | :--- |
 | **H1** mono vs multi | *Que arquitetura eu coloco em produção?* |
-| **H2** garantia estrutural | *Como impeço o agente de executar ação indevida no cliente?* |
+| **H2** garantia estrutural | *Como impeço uma ação indevida antes de qualquer efeito externo?* |
 | **H4** modelo por papel | *Quanto economizo baixando o modelo nos papéis fáceis?* |
 
 ### Hipótese central
@@ -98,7 +106,7 @@ Ticket (API · interface)      Suíte de regressão (17 chamados)
                         ▼
    Agentes  ── mono-agente ReAct │ multi-agente especializado
                         ▼
-   Servidor MCP ── núcleo genérico (OpenAPI→tools) + overlay
+   Camada de tools ── núcleo genérico (OpenAPI→tools) + overlay
                         ▼
               API Industrial TRACTIAN
                         ▼
@@ -151,7 +159,7 @@ com *shared kernel*. Módulos são fatias verticais por capacidade — `tools/`,
 A regra de dependência (`core/` não importa nada; módulos não se importam lateralmente; só
 `interfaces/` compõe) é verificada por teste, não por disciplina.
 
-### Servidor MCP em duas camadas
+### Camada de tools em duas camadas
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -167,7 +175,8 @@ A regra de dependência (`core/` não importa nada; módulos não se importam la
 └────────────────────────────────────────────────┘
 ```
 
-Integrar outra API exige apenas um novo contrato e um novo overlay — o núcleo não muda.
+Integrar outra API exige um novo contrato e um novo overlay — o núcleo não muda. A camada funciona
+como biblioteca Python; o envelope MCP é um adaptador opcional (ADR-01).
 
 Detalhamento completo, C4 e decisões arquiteturais registradas em
 [`docs/05-arquitetura.md`](docs/05-arquitetura.md).
@@ -176,10 +185,27 @@ Detalhamento completo, C4 e decisões arquiteturais registradas em
 
 ## 3. Instalação e execução
 
-> ⏳ *Instruções definitivas serão consolidadas ao final da implementação. O procedimento abaixo
-> reflete o desenho planejado.*
+### O que funciona no estado atual
 
-### Pré-requisitos
+```bash
+uv sync --extra dev
+uv run pytest -q
+uv run ruff check src tests
+uv run mypy src
+uv run lint-imports
+```
+
+Os testes da camada de tools usam o contrato fornecido pela TRACTIAN. Por padrão, ele é procurado
+em `../api_traction/inteli-tractian-project/agent-input/api-contract.openapi.yaml`; outro caminho
+pode ser informado por `TRACTIAN_CONTRACT_PATH`. Os cinco testes contra a API real são ignorados
+quando `TRACTIAN_API_URL` não está disponível.
+
+### Execução ponta a ponta planejada
+
+> Os comandos desta subseção descrevem o estado-alvo e **ainda não funcionam**, porque agente,
+> runner, Compose, backend e frontend pertencem às próximas fases do roadmap.
+
+#### Pré-requisitos do estado-alvo
 
 - Python ≥ 3.11
 - [`uv`](https://docs.astral.sh/uv/)
@@ -189,7 +215,7 @@ Detalhamento completo, C4 e decisões arquiteturais registradas em
 - Chave da [OpenRouter](https://openrouter.ai/) — eixo H3 (opcional)
 - API industrial da TRACTIAN em execução (repositório `inteli-tractian-project`)
 
-### Passo 1 — subir a API industrial
+#### Passo 1 — subir a API industrial
 
 ```bash
 cd ../inteli-tractian-project
@@ -197,7 +223,7 @@ make setup
 make up            # http://localhost:8000/docs
 ```
 
-### Alternativa — subir tudo com Docker
+#### Alternativa — subir tudo com Docker
 
 ```bash
 docker compose up          # API + backend + front + Langfuse
@@ -207,7 +233,7 @@ O Compose sobe também o **Langfuse** (`http://localhost:3000`), onde cada execu
 como um trace navegável — passo a passo, tokens, custo e score do juiz. Ele é **opcional**: o trace
 canônico é gravado em JSONL no disco e nada depende do serviço estar de pé (ADR-14).
 
-### Passo 2 — configurar este projeto
+#### Passo 2 — configurar este projeto
 
 ```bash
 uv sync
@@ -216,13 +242,13 @@ cp .env.example .env
 #              TRACTIAN_API_URL, AGENT_MODEL, JUDGE_MODEL
 ```
 
-### Passo 3 — atender um chamado
+#### Passo 3 — atender um chamado
 
 ```bash
 uv run python -m agent.cli --case case_tkt_inv_06 --architecture multi
 ```
 
-### Passo 4 — executar a suíte de avaliação
+#### Passo 4 — executar a suíte de avaliação
 
 ```bash
 uv run python -m evaluation.runner --experiment e1 --repetitions 2
@@ -233,7 +259,7 @@ O runner é uma **fila durável com lease**: interromper a qualquer momento e re
 comando retoma exatamente de onde parou, sem reprocessar casos concluídos. Ao atingir o teto diário
 do provedor, ele pausa sozinho e prossegue no ciclo seguinte.
 
-### Passo 5 — interface web
+#### Passo 5 — interface web
 
 ```bash
 uv run uvicorn backend.main:app --reload    # backend
@@ -259,21 +285,22 @@ entregar algo pior — ver [`14`](docs/14-roadmap-e-testes.md) §3.
 
 | Papel | Provedor | Modelo | Cota | Vazão |
 | :--- | :--- | :--- | :--- | ---: |
-| **Agente** (todos os papéis) | Google AI Studio | Gemini 2.5 Flash · `temp = 0` · 8 passos | 1.500 req/dia | **187 exec/dia** |
-| **Juiz** | Groq | `compound` — provedor e família distintos (RNF09) | 250 req/dia | 250 julg./dia |
-| **Eixo H3** | OpenRouter | modelo aberto `:free` | 50 req/dia | amostra |
+| **Agente** (todos os papéis) | Google AI Studio | Gemini 2.5 Flash · `temp = 0` · até 8 passos por agente | validar na conta | definida pelo piloto |
+| **Juiz** | Groq | modelo configurado, distinto do agente (RNF09) | validar na conta | definida pelo piloto |
+| **Eixo H3** | OpenRouter | modelo aberto `:free` | validar na conta | amostra condicionada ao orçamento |
 
-> **RF33 — homogeneidade de modelo.** Todos os papéis de agente usam o **mesmo** modelo em E1/E2.
+> **RF33 — homogeneidade de modelo.** Todos os papéis de agente usam o **mesmo** modelo em E1.
 > Heterogeneidade entre papéis tornaria impossível separar o efeito da arquitetura do efeito do
 > modelo. O juiz é exceção legítima: não integra o sistema medido.
 
-**Por que Gemini.** A escolha decorre da cota, não de preferência: as camadas gratuitas de Groq e
-OpenRouter como provedor do agente dariam **181 e 91 dias** de execução respectivamente. O Gemini
-reduz para **3 dias**. Registrado como limitação L12 — o TAP cita "modelos abertos" como referência
-de viabilidade, e Gemini é opção gratuita, não aberta; o eixo H3 cobre parcialmente essa dimensão.
+**Por que Gemini.** É o candidato inicial por disponibilidade de tool calling e cota, não por
+preferência. O piloto mede os limites efetivos antes de confirmar a escolha ou o cronograma.
+Registrado como limitação L12 — o TAP cita modelos abertos como referência de viabilidade, e Gemini
+é opção gratuita, não aberta; o eixo H3 cobre parcialmente essa dimensão.
 
-Modelo, versão, temperatura, seed, overlay e dataset são gravados em cada trace (RNF15) — todo
-resultado é reconstituível a partir de seus metadados.
+Modelo/versão/provedor por agente, temperatura, seed, braço, prompt, overlay, contrato, dataset e
+commit são gravados em cada trace (RNF15). Isso identifica a configuração e permite recomputar as
+métricas; não promete que um provedor remoto reproduzirá a mesma saída do LLM no futuro.
 
 ### Configuração experimental
 
@@ -300,16 +327,18 @@ existe diferença; dose-resposta mostra que a diferença acompanha a causa propo
 > Isso permite usar seeds distintos como níveis de uma variável contínua, em vez de um fator binário,
 > multiplicando o poder estatístico sem custo adicional.
 
-**E2 — Segurança (H2):** 5 casos adversariais × 2 arquiteturas × 5 repetições = **50 execuções**.
-Métrica primária: execução de ação de impacto sem satisfazer as pré-condições de autorização.
+**E2 — Segurança (H2):** 5 casos adversariais × 2 políticas × 5 repetições = **50 execuções**.
+Compara `prompt_only` e `pre_action_guard` mantendo arquitetura e modelo constantes. O primeiro braço
+é obrigatoriamente dry-run; mede tentativas inseguras sem produzir efeitos externos.
 
-**E4 — Especialização de modelo (H4):** braço B (multi uniforme) vs braço C (multi com Flash-Lite nos
+**E4 — Especialização de modelo (H4, condicional):** braço B (multi uniforme) vs braço C (multi com Flash-Lite nos
 papéis fáceis) = **272 execuções**. A arquitetura é mantida constante — é isso que torna o resultado
 interpretável. Comparar mono uniforme com multi heterogêneo mudaria duas variáveis ao mesmo tempo.
 
 **E3 — Overlay (H3):** amostra, ~130 execuções.
 
-**Total: 1.021 execuções ≈ 5,5 dias.**
+**Núcleo obrigatório: 594 execuções. Máximo condicional: 996.** O prazo é calculado após o piloto,
+com o p95 real de chamadas por execução de cada braço.
 
 ### Pirâmide de avaliação
 
@@ -326,9 +355,10 @@ reservado ao que é genuinamente subjetivo.
 
 | Mecanismo | Quando age | Garantia | Bloqueia entrega? |
 | :--- | :--- | :--- | :--- |
-| Composição por `tier` | antes | determinística — a tool não existe | — |
+| Composição por `tier` | antes | reduz a capacidade por papel | — |
 | Instrução no prompt | durante | probabilística | — |
-| **Guardrail (RF44)** | **depois** | **determinística** | **sim** |
+| **`PreActionGuard`** | **antes do efeito externo** | **determinística — valida RF13–RF15** | **bloqueia a ação** |
+| **`PreDeliveryGuard` (RF44)** | **antes da resposta** | **determinística — V1–V3** | **sim** |
 | Juiz LLM | fora do caminho | mede, não protege | **nunca** |
 
 O juiz avalia **depois da execução, em lote**. Pô-lo no caminho de entrega custaria latência, cortaria
@@ -371,10 +401,11 @@ Estrutura prevista do relatório:
 | 1 | Configuração executada: modelos, versões, contagens, cota consumida |
 | 2 | Meta-avaliação do juiz: kappa por critério; critérios excluídos |
 | 3 | E1 — resultados por métrica, arquitetura e regime; teste de cada predição de H1 |
-| 4 | E2 — taxa de execução indevida; teste de H2 |
+| 4 | E2 — taxa de tentativa insegura e bloqueios pré-ação; teste de H2 |
 | 5 | E3 — se executado; se não, registro explícito da não-execução |
-| 6 | Análise dos casos em que as arquiteturas divergiram |
-| 7 | Veredito por hipótese: sustentada · refutada · inconclusiva |
+| 6 | E4 — se executado; não-inferioridade e custo por papel para H4 |
+| 7 | Análise dos casos em que as arquiteturas divergiram |
+| 8 | Veredito por hipótese: sustentada · refutada · inconclusiva |
 
 **Compromisso declarado.** As hipóteses estão formuladas para serem falseáveis. Refutar H1 com
 método sólido é desfecho tão válido quanto confirmá-la, e será reportado com o mesmo destaque.
@@ -395,14 +426,15 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | **L4** | **Modelos abertos com tool calling variável** — resultados específicos aos modelos testados |
 | **L5** | **O juiz é um LLM** — mesmo validado, carrega erro residual; métricas de rubrica reportadas separadamente das determinísticas |
 | **L6** | **Rotulação humana por uma única pessoa** — o kappa mede concordância juiz–autor, não juiz–verdade |
-| **L7** | **P2.1 é verdadeira por construção** — a garantia estrutural de H2 não é descoberta empírica; o conteúdo empírico está em P2.2 e P2.3 |
+| **L7** | **P2.1 é verdadeira por construção** — a garantia estrutural de H2 não é descoberta empírica; o conteúdo empírico está em P2.2 |
 | **L8** | **Prompts não otimizados sistematicamente** — uma arquitetura pode ter desempenho inferior por prompt subótimo |
 | **L9** | **Cobertura desigual de degradação** — quatro modos têm n = 1 no dataset base |
-| **L10** | **Multi-turno implementado, mas não avaliado sistematicamente** — a suíte de regressão é de turno único; a sessão existe no produto (RF40, RF41) mas não há usuário simulado medindo memória entre interações |
+| **L10** | **Multi-turno planejado, mas não avaliado sistematicamente** — a suíte de regressão é de turno único; se RF40/RF41 forem implementados, ainda não haverá usuário simulado medindo memória entre interações |
 | **L11** | **Catálogo de tools difere entre arquiteturas** (18 vs ~8 por agente) — parte de um eventual ganho da multi pode vir de contexto menor, não de isolamento |
 | **L12** | **Modelo do agente é proprietário** — Gemini é opção gratuita, não aberta; a escolha decorre da cota |
 | **L13** | **A API valida justificativa apenas por comprimento** (≥20 caracteres) — não há rede externa contra justificativa vazia |
-| **L14** | **O eixo de modelo de H3 roda com 1 repetição** (cota de 50 req/dia do provedor do modelo menor) — P3.3 sustenta direção, não significância |
+| **L14** | **O eixo de modelo de H3 roda com 1 repetição** (orçamento conservador a validar no piloto) — P3.3 sustenta direção, não significância |
+| **L15** | **P3.3 confunde capacidade com provedor/família** — o resultado é exploratório e vale apenas para as configurações concretas comparadas |
 
 ---
 
@@ -420,7 +452,7 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | 4 | Segunda API real com overlay próprio | Demonstração empírica da portabilidade (hoje verificada por código) |
 | 5 | Topologias adicionais — debate entre agentes, verificador adversarial | Expande o espaço arquitetural |
 | 6 | Otimização sistemática de prompt por arquitetura | Cobre L8 |
-| 8 | **H4** — atribuição de modelo por papel vs. uniforme | Pergunta de produto; fora do escopo porque heterogeneidade tornaria H1 ininterpretável (RF33) |
+| 8 | Ampliação de H4 para outros modelos e provedores | Testar se a conclusão B vs C se transfere além dos modelos do piloto |
 | 9 | Workers distribuídos em múltiplas máquinas | A fila com lease já suporta; não exercitado porque a cota é por conta, não por máquina |
 | 10 | **Entrada por Slack, e-mail e portal** | Cada origem é um adaptador fino sobre `POST /tickets` — o sistema externo empurra, então webhook, não MCP (ADR-12) |
 | 10b | **Verificação adversarial antes de agir** — segundo agente instruído a refutar a conclusão antes de ação de impacto. Ataca o modo de falha central do domínio (confirmação); catalogado como E-A6 |
@@ -439,7 +471,7 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 | [`04-casos-de-uso.md`](docs/04-casos-de-uso.md) | 12 casos de uso UML com fluxos principais, alternativos e de exceção |
 | [`05-arquitetura.md`](docs/05-arquitetura.md) | C4 níveis 1–3 · contratos de dados · **14 ADRs** |
 | [`06-matriz-rastreabilidade.md`](docs/06-matriz-rastreabilidade.md) | Persona → US → RF → UC → cenário → métrica → hipótese |
-| [`07-plano-experimental.md`](docs/07-plano-experimental.md) | 4 hipóteses, 13 predições, variáveis, desenho, 17 métricas, rubrica, meta-avaliação |
+| [`07-plano-experimental.md`](docs/07-plano-experimental.md) | 4 hipóteses, 12 predições, variáveis, desenho, 17 métricas, rubrica, meta-avaliação |
 | [`08-glossario.md`](docs/08-glossario.md) | Glossário de domínio industrial e de engenharia de agentes |
 | [`09-system-design.md`](docs/09-system-design.md) | Fila com lease, IDs e correlação, taxonomia de falhas, orçamento de tokens, provedores e vazão, contratos do BFF, empacotamento, armazenamento |
 | [`10-matriz-de-experimentos.md`](docs/10-matriz-de-experimentos.md) | Catálogo de todas as perguntas testáveis — declaradas, candidatas e descartadas — com custo, valor e portfólio |
@@ -466,10 +498,10 @@ Registradas antecipadamente, não como concessão posterior aos resultados.
 
 | Referência | Uso neste projeto |
 | :--- | :--- |
-| **ReAct** — Yao et al. | Padrão do loop de raciocínio de cada agente |
-| **TAU-bench** | Modelo de avaliação por cenário com política de domínio; inspiração para o golden dataset |
-| **Toolformer** | Fundamentação sobre quando e como usar APIs externas |
-| **Model Context Protocol** | Camada de integração entre agente e API |
+| [**ReAct** — Yao et al. (2023)](https://arxiv.org/abs/2210.03629) | Padrão do loop de raciocínio de cada agente |
+| [**τ-bench** — Yao et al. (2024)](https://arxiv.org/abs/2406.12045) | Modelo de avaliação por cenário com política de domínio; inspiração para o golden dataset |
+| [**Toolformer** — Schick et al. (2023)](https://arxiv.org/abs/2302.04761) | Fundamentação sobre quando e como usar APIs externas |
+| [**Model Context Protocol — Specification**](https://modelcontextprotocol.io/specification/) | Envelope opcional de interoperabilidade para a camada de tools |
 | **LangGraph** | Orquestração do grafo multi-agente com estado e retomada |
 | **Eval-driven development** — Airbnb Tech Blog | Fundamentação do desenho de avaliação |
 

@@ -85,7 +85,7 @@ sem verificação é intenção.
 | RF | Origem (US) | UC | Verificado por |
 | :--- | :--- | :--- | :--- |
 | RF01 Interpretar NL | US01–US17 | UC-01, UC-02 | Execução sem erro nos 17 casos |
-| RF02 Consultar via MCP | US01–US17 | UC-09 | Auditoria de trace: toda chamada via `tools/call` |
+| RF02 Consultar via camada de tools | US01–US17 | UC-09 | Auditoria de trace: toda chamada via `tools/call` |
 | RF03 Gerar tools do OpenAPI | arquitetura | UC-09 | Tools == `operationId` do contrato |
 | RF04 Overlay | arquitetura | UC-09 | Contrato base íntegro; descrições enriquecidas |
 | RF05 Pré-condições | US04–US06, US09–US12 | UC-02 | **M5b** |
@@ -143,12 +143,12 @@ sem verificação é intenção.
 | RNF04 Falha transitória | `RetryPolicy` com recuo exponencial | C4, C5 | Injeção de falha simulada |
 | RNF05 Menor privilégio | Composição por `tier` do overlay | C3, C4 | Interseção vazia validada na inicialização |
 | RNF06 Portabilidade | Núcleo genérico sem domínio | C4 | Varredura de código; segundo contrato OpenAPI |
-| RNF07 Observabilidade | `TraceEmitter` no servidor MCP | C4 | Contagem cruzada chamadas × registros |
+| RNF07 Observabilidade | `TraceEmitter` na camada de tools | C4 | Contagem cruzada chamadas × registros |
 | RNF08 Latência SSE | Streaming no BFF | C2 | p95 ≤ 1000 ms |
 | RNF09 Independência do juiz | Asserção de modelo distinto | C5 | Aborta se coincidirem |
 | RNF10 Neutralidade de ordem | Comparação nas duas ordens | C5 | Assimetria reportada |
 | RNF11 Custo | Contabilização de tokens | C3, C5 | Relatório de consumo (M15) |
-| RNF12 Tempo | Token bucket na taxa do provedor (ADR-09) | C5 | Núcleo (1.021 execuções) em ≈ 5,5 dias a 187/dia |
+| RNF12 Tempo | Token bucket na taxa medida do provedor (ADR-09) | C5 | Núcleo de 594 cabe na projeção pós-piloto |
 | RNF13 Validação de contratos | Pydantic em toda fronteira | C3, C4, C5 | Testes com objetos malformados |
 | RNF14 Ambiente reprodutível | Dependências fixadas | todos | Execução em ambiente limpo |
 | RNF15 Configuração registrada | Metadados no trace | C3, C5 | Completude validada na suíte |
@@ -177,9 +177,8 @@ projeto ficariam desconectadas.
 
 | Predição | Métrica | Cenários discriminantes | Requisito instrumentado |
 | :--- | :--- | :--- | :--- |
-| **P2.1** Zero execução indevida na multi | M10 | A1, A2, A4, A5 | **RF12** |
-| **P2.2** Taxa não nula na mono | **M10** | A1, A2, A4 (peso alto) | RF13, RF14 |
-| **P2.3** Diferença cresce com insistência | M10 | A2 (insistência) | RF14, RF15 |
+| **P2.1** Zero efeito externo indevido com `PreActionGuard` | teste de invariante | A1, A2, A4, A5 | **RF13–RF15** |
+| **P2.2** Taxa não nula de tentativa em `prompt_only` | **M10** | A1, A2, A4 (peso alto) | RF13–RF15 |
 
 ### H3 — Enriquecimento semântico
 
@@ -232,7 +231,7 @@ projeto ficariam desconectadas.
 | **C1** Interface Web | RF29, RF30, RF31, RF32 · RNF08 |
 | **C2** Backend / BFF | RF19, RF29 · RNF08 |
 | **C3** Núcleo do Agente | RF01, RF05–RF11, RF15–RF18 · RNF01, RNF05, RNF13, RNF15 |
-| **C4** Servidor MCP | RF02, RF03, RF04, RF12, RF13, RF14, RF17 · RNF04–RNF07, RNF13 |
+| **C4** Camada de tools | RF02, RF03, RF04, RF12, RF13, RF14, RF17 · RNF04–RNF07, RNF13 |
 | **C5** Avaliação | RF20–RF28, RF33 · RNF01–RNF04, RNF09–RNF13, RNF15, RNF16 |
 | **C6** Armazenamento durável | RF17, RF20, RF34–RF36 · RNF03 |
 | **C7** Coordenação efêmera | RF19 · RNF08, RNF16, RNF17 |
@@ -272,7 +271,7 @@ Derivada das dependências entre componentes. Requisitos marcados 🛑 bloqueiam
 
 | Etapa | Requisitos | Bloqueia |
 | :--- | :--- | :--- |
-| 1 | RF03, RF04 — servidor MCP com overlay | tudo |
+| 1 | RF03, RF04 — camada de tools com overlay | tudo |
 | 2 | 🛑 RF17 — trace estruturado | todo o experimento |
 | 3 | RF01, RF02, RF16 — loop ReAct mono | arquitetura A |
 | 4 | RF05–RF11 — disciplina de evidência | H1 |

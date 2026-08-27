@@ -161,8 +161,8 @@ este uso).
 #### google-genai
 **Onde:** cliente do modelo do agente (Gemini 2.5 Flash e Flash-Lite).
 **Por quê:** SDK oficial do Gemini, com suporte a *function calling* — a capacidade de que todo o
-projeto depende. É o provedor que torna o experimento viável (187 execuções/dia contra 3 e 6 das
-alternativas gratuitas).
+projeto depende. A viabilidade é confirmada pelo piloto com cota efetiva e p95 de chamadas, não por
+uma taxa nominal fixa; as alternativas permanecem registradas para comparação de orçamento.
 **Descartado:** `google-generativeai` — SDK anterior, substituído pelo unificado.
 
 #### openai
@@ -249,7 +249,7 @@ o coeficiente com erro-padrão e intervalo de confiança em fórmula legível.
 erro-padrão de coeficiente, que é justamente o que se precisa aqui.
 
 #### scipy
-**Onde:** McNemar (H2, H3), Wilcoxon, bootstrap dos intervalos de confiança.
+**Onde:** McNemar (H3), intervalo binomial (H2), Wilcoxon e bootstrap dos intervalos de confiança.
 **Por quê:** testes pareados sobre métricas binárias e contínuas. O bootstrap é **por caso**, não por
 execução — os casos são a unidade de amostragem.
 **Descartado:** implementação manual dos testes (risco de erro em algo que decide a conclusão do
@@ -295,12 +295,12 @@ nenhuma métrica agregada revela.
 >
 > | | |
 > | :--- | ---: |
-> | 8 passos × 1.021 execuções | 8.168 spans |
-> | 1 métrica LLM por span | 8.168 chamadas de juiz |
-> | cota do juiz (Groq) | 250/dia |
-> | **tempo necessário** | **33 dias** |
+> | spans por execução | medidos por braço no piloto |
+> | 1 métrica LLM por span | `total_spans` chamadas de juiz |
+> | cota do juiz (Groq) | medida no piloto |
+> | **tempo necessário** | `ceil(total_spans / cota_diária)` — só habilitar se couber |
 >
-> No piloto: 20 × 8 = 160 chamadas, uma vez. Cabe.
+> No piloto, a validação por span roda apenas sobre amostra pequena e previamente orçada.
 
 **O que o DeepEval NÃO cobre.** M5a/M5b, M7, M8, M14, M10, M11 — todas operam sobre a **estrutura da
 trajetória** (em qual passo o dado chegou, qual evidência foi ancorada a qual passo), e o

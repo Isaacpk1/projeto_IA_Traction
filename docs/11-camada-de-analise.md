@@ -200,7 +200,7 @@ CREATE INDEX idx_metrics_exec ON metrics(execution_id);
 | :--- | :--- | :--- |
 | **M14** perda no handoff | arquitetura mono — não há handoff | Vantagem artificial para a mono |
 | **M5a/M5b** pré-condição | `detection_mode = symptom` — baseline não é pré-requisito | Penalizaria o comportamento correto em TKT-INV-11b |
-| **M10** falso agir | caso sem ação solicitada nem indicada | Diluiria a taxa com casos irrelevantes |
+| **M10** tentativa insegura | caso sem ação solicitada nem indicada | Diluiria a taxa com casos irrelevantes |
 | **M7** afirmação vedada | caso que não discute limiar | Idem |
 
 **`detail` guarda a prova.** Para M8 (ancoragem), guarda quais evidências foram encontradas e quais
@@ -269,21 +269,20 @@ Sem I/O, sem rede, sem estado. É o que torna A1 verdadeiro na prática, e não 
 A métrica que sustenta a análise dose-resposta não estava definida ainda:
 
 ```python
-def degradation_intensity(trace) -> float:
-    """Proporção de retornos da API que não vieram completos."""
-    modos = [s.result.get("mode") for s in trace.steps
-             if s.result and "mode" in s.result]
-    if not modos:
-        return 0.0
-    return sum(1 for m in modos if m != "complete") / len(modos)
+def degradation_intensity(case, seed, api) -> float:
+    """Proporção degradada no conjunto fixo de recursos relevantes do caso."""
+    modos = [api.mode(probe, seed=seed) for probe in case.degradation_probes]
+    return sum(1 for mode in modos if mode != "complete") / len(modos)
 ```
 
 Vai de 0,0 (tudo completo) a 1,0 (nada completo). **É a variável independente contínua de H1** — o
 eixo X do gráfico que carrega a hipótese central.
 
-Duas propriedades importantes: é computada **do trace**, não do gabarito (então não vaza informação
-privilegiada), e varia por execução mesmo dentro do mesmo seed, porque depende de quais recursos o
-agente consultou.
+Duas propriedades importantes: ela é calculada **antes da execução**, sobre o conjunto fixo de
+recursos relevantes formalizado para cada caso, e gravada no trace como metadado. Assim, mono e
+multi recebem exatamente o mesmo eixo X. A proporção observada apenas nas tools efetivamente
+consultadas continua disponível como diagnóstico de trajetória, mas não entra como variável
+independente: ela seria endógena à arquitetura.
 
 ### 4.3 Recomputação
 
@@ -309,7 +308,12 @@ Esta é a fronteira mais importante desta camada:
 agente produz resolução
         ▼
 ┌────────────────────────────────┐
-│  GUARDRAIL — RF44              │  V1 · V2 · V3
+│  PRE-ACTION GUARD — RF13–RF15  │  antes de qualquer tool de impacto
+│  bloqueia efeito externo        │
+└────────────────────────────────┘
+        ▼
+┌────────────────────────────────┐
+│  PRE-DELIVERY GUARD — RF44     │  V1 · V2 · V3
 │  determinístico · ~1 ms · grátis│  NO caminho de entrega
 └──────┬──────────────────┬──────┘
     passa              falha
@@ -329,16 +333,16 @@ agente produz resolução
 
 **O que protege é determinístico. O que mede é o juiz.** Nunca o contrário.
 
-| | Guardrail (RF44) | Juiz LLM |
+| | Guards determinísticos | Juiz LLM |
 | :--- | :--- | :--- |
-| Quando | antes de entregar | depois, em lote |
+| Quando | antes da ação e antes de entregar | depois, em lote |
 | Custo | ~1 ms, grátis | 1 chamada de cota |
 | Determinístico | ✅ | ❌ |
 | Bloqueia entrega? | **sim** | **nunca** |
 | Validado? | por construção | só após a meta-avaliação |
 
-Três razões para o juiz não bloquear: **latência** (mais uma chamada por ticket), **cota** (cairia de
-187 para ~93 tickets/dia) e — decisiva — **contaminação**: um juiz no caminho crítico faria H1 medir
+Três razões para o juiz não bloquear: **latência**, **consumo de cota** e — decisiva —
+**contaminação**: um juiz no caminho crítico faria H1 medir
 *agente + juiz*, não a arquitetura. Soma-se que ele só é validado depois da meta-avaliação.
 
 ### 5.1 O que vai para o juiz
@@ -395,18 +399,16 @@ decide isso por nós, e não deve.
 
 ### 5.3 Cota e lote
 
-O juiz tem cota própria (Groq, 250/dia) e por isso **fila própria**, independente da fila de
-execução. Rodam em paralelo: enquanto o agente executa a rodada do dia, o juiz processa as execuções
-do dia anterior.
+O juiz tem cota própria no Groq, medida no piloto, e por isso **fila própria**, independente da fila de
+execução. Rodam em paralelo, com backlog e vazão observáveis.
 
 ```
-dia 1: agente executa 187  │  juiz ocioso
-dia 2: agente executa 187  │  juiz julga 187 do dia 1
-dia 3: agente executa 187  │  juiz julga 187 do dia 2
-...
+execução produz traces ──► fila derivada de julgamentos ──► juiz
+       vazão A                         backlog              vazão J
 ```
 
-O julgamento fica um dia atrás e nunca é o gargalo, porque 250 > 187.
+O piloto mede A e J. Se J < A, o julgamento é gargalo e E3/E4 ou critérios opcionais são adiados;
+o núcleo determinístico não espera o juiz para continuar executando.
 
 ---
 
@@ -445,7 +447,7 @@ não apenas de associação.
 | Hipótese | Teste | Métrica primária |
 | :--- | :--- | :--- |
 | **H1** | Regressão logística com interação | M4 × intensidade |
-| **H2** | McNemar pareado, casos adversariais | M10 |
+| **H2** | Taxa de M10 no `prompt_only` com IC binomial; zero efeitos no guard por invariante | M10 |
 | **H3** | McNemar pareado | M7 |
 | **H4** | **Teste de não-inferioridade**, margem 5 p.p. | M4 |
 
@@ -455,6 +457,11 @@ não apenas de associação.
 > o limite inferior do IC da diferença fica acima de −5 p.p.
 >
 > Confundir os dois é o erro mais comum em comparações de "é tão bom quanto".
+
+> **Pré-requisito de poder.** A margem de 5 p.p. representa a maior perda aceitável definida antes
+> da execução. O piloto deve estimar a taxa basal e verificar se o número de casos independentes
+> permite um intervalo informativo. Se o IC não puder excluir perdas maiores que 5 p.p., H4 será
+> reportada como **inconclusiva**, ainda que não haja diferença significativa.
 
 ### 6.3 Intervalos de confiança
 

@@ -380,12 +380,13 @@ do agente.
 | 4 | O sistema compõe os parâmetros da ação e a justificativa fundamentada em evidência |
 | 5 | **Se** `requires_confirmation` → o sistema apresenta ação, justificativa e consequência, e aguarda confirmação explícita |
 | 6 | O Solicitante confirma |
-| 7 | O sistema executa a ação pela tool correspondente |
-| 8 | O sistema registra o resultado e confirma ao Solicitante |
+| 7 | O `PreActionGuard` revalida permissão, confirmação vinculada e evidência ancorada |
+| 8 | Somente após aprovação do gateway, o sistema executa a ação pela tool correspondente |
+| 9 | O sistema registra o resultado e confirma ao Solicitante |
 
-> **Garantia estrutural.** Na arquitetura multi-agente, os passos 7–8 ocorrem exclusivamente no
-> agente Executor, único portador de tools `tier: impact` (RF12, RNF05). Agentes de investigação não
-> possuem essas tools em seu schema — a violação é impossível, não improvável.
+> **Duas propriedades diferentes.** Na arquitetura multi-agente, a execução ocorre exclusivamente no
+> Executor, único portador de tools `tier: impact` (RF12, RNF05). A garantia de que uma ação indevida
+> não produz efeito vem do `PreActionGuard` no gateway, aplicado também à arquitetura mono.
 
 ### Fluxos alternativos
 
@@ -418,6 +419,10 @@ novamente **uma vez**. Persistindo, escala.
 **FE-05.3 — Falha na execução**
 → O sistema **não presume sucesso**. Registra a falha e informa o Solicitante de que a ação não foi
 efetivada.
+
+**FE-05.4 — `PreActionGuard` bloqueia a ação**
+→ Nenhuma chamada externa é emitida. O trace registra a tentativa, a pré-condição ausente e a ação
+efetivamente bloqueada; o caso é escalado para análise humana.
 
 ---
 
@@ -578,7 +583,7 @@ persistido.
 | :-- | :--- |
 | 1 | O Solicitante submete a mensagem com contexto (empresa, usuário, ativo) |
 | 2 | O sistema valida o contrato de entrada |
-| 3 | O sistema consulta a criticidade do ativo e **deriva a prioridade** |
+| 3 | O sistema consulta a criticidade do ativo com deadline compatível com RNF18 e **deriva a prioridade** |
 | 4 | O sistema enfileira a tarefa com `kind = ticket` |
 | 5 | O sistema responde `202` com `ticket_id` e estado `queued` |
 | 6 | Um worker disponível faz o *lease* da tarefa de maior prioridade |
@@ -593,6 +598,9 @@ persistido.
 **FA-11.1 — Criticidade indisponível**
 No passo 3, a consulta ao ativo falha ou não retorna criticidade.
 → Prioridade padrão média. O ticket **não** é recusado por isso.
+
+Timeout da consulta é tratado pelo mesmo fluxo. A ingestão nunca espera indefinidamente pela API;
+criticidade conhecida pode ser obtida de cache com TTL registrado, e o fallback é observável.
 
 **FA-11.2 — Fila acima da capacidade**
 A entrada excede a vazão de processamento.

@@ -278,7 +278,12 @@ pastas e tornaria impossível ler no repositório o que o sistema faz.
 
 ---
 
-## 4. Estrutura de pastas
+## 4. Estrutura-alvo de pastas
+
+> Esta árvore descreve o estado final planejado. Em 26/08/2026 estão implementados `core/`,
+> `tools/`, as especificações declarativas em `agents/roles/` e a infraestrutura de testes.
+> `agents/react.py`, adaptadores de LLM, runner, persistência, interfaces e frontend pertencem às
+> fases seguintes do [`roadmap`](./14-roadmap-e-testes.md).
 
 ```
 projeto_IA_Traction/

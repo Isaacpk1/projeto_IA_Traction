@@ -17,8 +17,8 @@
 
 | Fato | Consequência |
 | :--- | :--- |
-| O experimento leva **5,5 dias de execução** a 187/dia | Não é trabalho, é **espera**. Não acelera com esforço |
-| O julgamento roda **1 dia atrás** do agente | Termina ~1 dia depois da última execução |
+| A vazão depende das chamadas por execução de cada braço | O piloto precisa ocorrer antes de prometer uma data de término |
+| O núcleo possui 594 execuções; o máximo condicional, 996 | E3 e E4 só entram se a medição preservar tempo de análise |
 | A análise precisa dos resultados | Só começa quando o experimento acaba |
 
 **Portanto:**
@@ -31,6 +31,20 @@ runner, guardrail, golden dataset e métricas.
 O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatística — é construído
 **enquanto o experimento roda em segundo plano**. Essa é a única forma de caber.
 
+### 1.1 Estado verificado em 26/08/2026
+
+- **Concluído:** contratos e portas do núcleo, fakes, factories, regras do `import-linter`, parser
+  OpenAPI, overlay, factory, executor HTTP, catálogo por `tier`, dry-run e papéis declarativos.
+- **Fase 1 concluída:** as 18 tools são geradas do contrato real; cobertura do overlay, composição
+  por autoridade, transporte e portabilidade do núcleo têm testes automatizados.
+- **Pendências da Fase 0:** medição real de cota e decisão/spike do loop; Langfuse e sinks ainda não
+  foram implementados. Essas pendências operacionais não tornam a camada de tools incompleta, mas
+  impedem marcar o DoD integral da Fase 0 como concluído.
+- **Próximo passo:** Fase 2 — loop ReAct mono, prompt base, adaptador Gemini e trace JSONL.
+- **Ainda inexistente:** runner/fila SQLite, guards, golden formalizado, métricas, arquitetura multi,
+  BFF, frontend e Compose. Comandos ponta a ponta permanecem explicitamente marcados como planejados
+  no README.
+
 ---
 
 ## 2. As duas trilhas
@@ -42,7 +56,7 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
         └───────────────────────────────────────┘
                                                  │
 01/09 ──┬─ TRILHA A (fundo) ── experimento executando ──────────┬── 06/09
-        │                       1.021 execuções · 5,5 dias      │
+        │                       núcleo 594 · máximo 996         │
         │                                                        │
         └─ TRILHA B (frente) ── ingestão · console · BFF ────────┘
                                 front · juiz · estatística
@@ -133,14 +147,14 @@ Você pediu um front "bem básico, para ver tudo melhor do que um print". A defi
 | Contratos do `import-linter` | em `pyproject.toml` — substitui o checker de AST |
 | **Spike `pydantic-ai` — 2h, timeboxed** | uma tool, um loop com `TestModel`, verificar se o histórico permite montar o trace |
 | `tests/test_architecture.py` | regra de dependência |
-| Script de medição de cota | valida os 187/dia |
+| Script de medição de cota | mede RPM, RPD e p95 de chamadas por execução em A/B/C |
 | Decisão do spike | adotar `pydantic-ai` ou loop próprio — **decidir no dia 1, não depois** |
 
 > **Os fakes vêm primeiro, antes de qualquer implementação real.** Sem `FakeLLMClient`, não existe
 > TDD do agente — só teste de integração caro e não-determinístico. Ver §6.
 
 > **Timebox do Langfuse: 2 h.** Se o self-host não subir nesse tempo, use o cloud free tier
-> (50k observações/mês, folgado para 1.021 execuções) e siga. Se nem isso, `JsonlTraceSink` sozinho
+> (50k observações/mês, folgado para até 996 execuções) e siga. Se nem isso, `JsonlTraceSink` sozinho
 > já satisfaz todos os RFs — o Langfuse é conforto, não requisito (RC-08).
 
 **DoD:** `pytest` verde · regra de dependência falhando quando violada de propósito · cota medida ·
@@ -174,15 +188,16 @@ Langfuse**.
 
 ### Fase 3 — Fila, runner e guardrail · **28/08** (1 dia)
 
-`queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py` · **`guardrail.py` (RF44)**
+`queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py` ·
+**`pre_action_guard.py` (RF13–RF15)** · **`pre_delivery_guard.py` (RF44)**
 
-> **O guardrail determinístico (V1/V2/V3) está no caminho de entrega** — é o que separa `Resolution`
-> (o que o agente decidiu) de `Delivered` (o que chegou ao solicitante). O juiz LLM **não** está
-> nesse caminho: ele roda depois, fora, na camada de análise. Ver ADR-13.
+> O `PreActionGuard` bloqueia efeitos externos sem permissão, confirmação ou evidência válida. O
+> `PreDeliveryGuard` aplica V1/V2/V3 e separa `Resolution` de `Delivered`. O juiz LLM fica fora dos
+> dois caminhos: ele mede depois. Ver ADR-13.
 
 **DoD:** 20 casos executam · interromper com `Ctrl-C` e reexecutar retoma sem reprocessar · guarda de
-isolamento aborta quando o gabarito é exposto de propósito (RNF02) · **guardrail bloqueia resolução
-que cita evidência não presente no trace**.
+isolamento aborta quando o gabarito é exposto de propósito (RNF02) · **ação sem pré-condição não
+chega à API** · resolução com evidência forjada não é entregue.
 
 ---
 
@@ -211,7 +226,8 @@ Checklist objetivo. Se algum item falhar, **corte pela lista da §9** — não e
 - [ ] Um caso executa de ponta a ponta nos braços A e B
 - [ ] Fila retoma após interrupção
 - [ ] Guarda de isolamento bloqueia (RNF02)
-- [ ] **Guardrail (RF44) bloqueando resolução com evidência forjada**
+- [ ] `PreActionGuard` bloqueia ação sem RF13–RF15 antes da API
+- [ ] `PreDeliveryGuard` (RF44) bloqueia resolução com evidência forjada
 - [ ] Métricas calculam sobre traces reais
 - [ ] Golden dataset com `forbidden_claims` e `required_preconditions`
 - [ ] Cota real medida e vazão confirmada
@@ -231,16 +247,14 @@ Checklist objetivo. Se algum item falhar, **corte pela lista da §9** — não e
 
 **Trilha A — fundo, sem atenção:**
 
-| Dia | Execuções acumuladas |
-| :--- | ---: |
-| 01/09 | 187 |
-| 02/09 | 374 |
-| 03/09 | 561 |
-| 04/09 | 748 |
-| 05/09 | 935 |
-| 06/09 | **1.021 ✓** |
+| Marco | Critério |
+| :--- | :--- |
+| Piloto | p95 de chamadas por execução e cotas efetivas registrados por braço |
+| Núcleo | E1 + E2 = **594 execuções** concluídas primeiro |
+| Extensões | E3 (+130) e E4 (+272) habilitadas somente se couberem integralmente |
+| Máximo | **996 execuções**, sem consumir o dia reservado à análise |
 
-Julgamento roda em paralelo, ~1 dia atrás, a 250/dia. **Score do juiz é anexado ao trace no Langfuse**
+Julgamento roda em paralelo na vazão confirmada pelo piloto. **Score do juiz é anexado ao trace no Langfuse**
 (`langfuse.score()`), o que permite filtrar "todas as execuções que o juiz reprovou" e abrir o
 raciocínio de cada uma — isso é calibração de rubrica praticamente de graça.
 
@@ -257,10 +271,11 @@ raciocínio de cada uma — isso é calibração de rubrica praticamente de gra�
 
 ### Fase 7 — Fechamento · **07/09** (1 dia)
 
-Análise dos resultados · teste das 13 predições · dashboard com dados reais · README com Resultados
+Análise dos resultados · teste das 12 predições · dashboard com dados reais · README com Resultados
 e Limitações · apresentação.
 
-**DoD:** veredito escrito para H1, H2, H3 e H4 — incluindo os **inconclusivos**.
+**DoD:** veredito escrito para H1 e H2; para H3 e H4, veredito se executadas ou registro explícito
+da não-execução — incluindo resultados **inconclusivos**.
 
 ---
 
@@ -311,7 +326,7 @@ que os duplos entrem no lugar dos reais.
 | Componente | Determinístico? | Abordagem | TDD real? |
 | :--- | :---: | :--- | :---: |
 | Scorers (M1–M16) | ✅ | função pura sobre trace sintético | ✅ **ideal** |
-| **Guardrail V1/V2/V3 (RF44)** | ✅ | trace com evidência forjada | ✅ **ideal** |
+| **Guards pré-ação/pré-entrega** | ✅ | tentativa sem pré-condição + trace com evidência forjada | ✅ **ideal** |
 | Fila (lease, prioridade, idempotência) | ✅ | SQLite em memória | ✅ **ideal** |
 | `openapi_parser` + overlay | ✅ | contrato real como fixture | ✅ **ideal** |
 | Prioritizer | ✅ | criticidade → prioridade | ✅ **ideal** |
@@ -356,6 +371,8 @@ não medem comportamento, eles **impedem** que o projeto se invalide:
 | :--- | :--- |
 | Isolamento do gabarito | RNF02 — vazamento invalida **todos** os resultados |
 | Composição por `tier` | RF12 / RNF05 — Investigador sem tool de impacto |
+| `PreActionGuard` obrigatório em provider real | RF13–RF15 — nenhuma ação externa sem gateway |
+| `prompt_only` exige provider dry-run | E2 — braço inseguro nunca produz efeito externo |
 | Braço de modelo válido | RF33 — A vs C torna H1 ininterpretável |
 | Regra de dependência (`import-linter`) | `analysis/` não importa `agents/` nem SDK de LLM |
 | Núcleo sem domínio | RNF06 |
@@ -364,8 +381,8 @@ não medem comportamento, eles **impedem** que o projeto se invalide:
 | Caminho único ticket/suíte | RF39 |
 | **Trace preservado sob falha de sink secundário** | ADR-14 — observabilidade não é ponto único de falha |
 
-**E2E consome cota.** Cada teste ponta a ponta com LLM real gasta ~8 requisições de um orçamento de
-1.500/dia. Dois ou três, rodados manualmente antes de marcos — nunca em CI a cada commit.
+**E2E consome cota.** O piloto mede o consumo real por arquitetura. Dois ou três testes, rodados
+manualmente antes de marcos — nunca em CI a cada commit.
 
 ### 6.4 O ciclo, na prática
 
@@ -427,7 +444,7 @@ execute de cima para baixo, e pare quando o tempo acabar.
 | **1** | **E-V2 — Rubrica binária vs Likert** | ~3 h | **0 execuções**<br>+594 julgamentos | Testa se a decomposição binária realmente aumenta a concordância com humano. **Não reexecuta o agente** (RF34) — melhor relação valor/custo do catálogo |
 | **2** | **Validação cruzada `ToolCorrectness`** | ~2 h | ~30 chamadas | Confronta M5a/M6 (implementação própria) com métrica de biblioteca terceira. Argumento de validade de instrumento, quase de graça |
 | **3** | **E-T2 — Isolamento de tool sem isolamento de agente** | ~4 h | +272 exec | **Resolve a limitação L11**: separa "efeito de isolamento de contexto" de "efeito de catálogo menor". Converte limitação declarada em achado |
-| **4** | **E-A6 — Agente adversarial ("advogado do diabo")** | ~1,5 dia | +~300 exec | 4ª camada de defesa. Ver §8.1 |
+| **4** | **E-A6 — Agente adversarial ("advogado do diabo")** | ~1,5 dia | +~300 exec | Camada probabilística adicional. Ver §8.1 |
 | **5** | **Envelope MCP sobre a camada de tools** | ~2 h | 0 | Permite plugar Claude Desktop / Slack / n8n no sistema. ADR-01 já deixa o caminho aberto — é adaptador, não reescrita |
 | **6** | **E-A3 — Handoff tipado vs handoff em prosa** | ~4 h | +272 exec | Valida o ADR-05 e a predição P1.4, hoje afirmações não demonstradas |
 | **7** | **E-V4 — Casos base vs casos gerados** | ~4 h | +272 exec | Verifica se casos sintéticos reproduzem a dificuldade dos originais — pré-requisito honesto para o item 8 |
@@ -445,15 +462,15 @@ em vez de "resolva o ticket", recebe "**encontre o motivo pelo qual esta resolu�
 No fim, as duas linhas de raciocínio se confrontam e a que sobrevive é a entregue.
 
 **Por que é bom:** ataca o modo de falha mais perigoso do sistema — o agente que constrói uma
-narrativa plausível e coerente a partir de uma premissa errada, e que nenhuma das outras três
-camadas de defesa pega. O guardrail (RF44) verifica se a evidência **existe**; o adversarial
+narrativa plausível e coerente a partir de uma premissa errada, e que os controles determinísticos
+não avaliam semanticamente. O `PreDeliveryGuard` verifica se a evidência **existe**; o adversarial
 questiona se ela **sustenta a conclusão**.
 
 **Por que é extra e não núcleo:**
 
 | Razão | Detalhe |
 | :--- | :--- |
-| **Custa cota que o experimento não tem** | +~300 execuções sobre 1.021 já apertadas em 5,5 dias — quase +1,5 dia de espera |
+| **Custa cota que o experimento não reservou** | +~300 execuções além do máximo condicional de 996; prazo depende do piloto |
 | **Não pertence a nenhuma hipótese** | H1 é dose-resposta de arquitetura; H4 é não-inferioridade de modelo. Como **quinto braço** seria uma H5 que não existe — e com 4 hipóteses já declaradas, não cabe |
 | **Muda o objeto de medida** | Se entrar no caminho de entrega, H1 passa a medir "agente + adversarial", não a arquitetura |
 | **Confunde a defesa** | A tese é sobre engenharia e avaliação de agentes. Um mecanismo novo no fim do cronograma dilui isso |
@@ -465,21 +482,22 @@ Futuros com desenho pronto**, que vale mais que uma implementação apressada e 
 
 ### 8.2 As camadas de defesa — onde cada uma está
 
-Contexto para entender por que E-A6 é a 4ª camada e não a 1ª (ADR-13):
+Contexto para entender onde E-A6 se encaixa (ADR-13):
 
 | # | Camada | Quando age | Garantia | Status |
 | ---: | :--- | :--- | :--- | :--- |
-| 1 | **Composição por `tier`** (RF12) | **antes** — a tool não existe no schema | determinística | ✅ núcleo, Fase 1 |
-| 2 | **Instrução no prompt** | **durante** | probabilística | ✅ núcleo, Fase 2 |
-| 3 | **Guardrail V1·V2·V3** (RF44) | **depois**, no caminho de entrega | determinística | ✅ núcleo, Fase 3 |
-| 4 | **Agente adversarial** (E-A6) | antes de **agir**, por confronto | probabilística e **independente** | 🎁 extra |
+| 1 | **Composição por `tier`** (RF12) | na composição | determinística por papel | **implementada — Fase 1** |
+| 2 | **Instrução no prompt** | **durante** | probabilística | planejada — Fase 2 |
+| 3 | **`PreActionGuard`** (RF13–RF15) | antes da API | determinística | planejada — Fase 3 |
+| 4 | **`PreDeliveryGuard` V1·V2·V3** (RF44) | antes da resposta | determinística | planejada — Fase 3 |
+| 5 | **Agente adversarial** (E-A6) | antes de **agir**, por confronto | probabilística e **independente** | extra, não iniciado |
 
 > **O juiz LLM não é camada de defesa.** Ele mede, não protege — roda fora do caminho de entrega, na
-> camada de análise (Fase 6). Colocá-lo no caminho dobraria a latência, cortaria a vazão de 187 para
-> ~93 tickets/dia e contaminaria H1, que passaria a medir "agente + juiz".
+> camada de análise (Fase 6). Colocá-lo no caminho aumentaria latência e consumo, além de contaminar
+> H1, que passaria a medir "agente + juiz".
 
-> As camadas 1 e 3 são **determinísticas** — funcionam mesmo se o modelo alucinar. As camadas 2 e 4
-> são **probabilísticas**. Por isso o núcleo garante as determinísticas primeiro.
+> As camadas 1, 3 e 4 são **determinísticas**; as camadas 2 e 5 são **probabilísticas**. Por isso o
+> núcleo garante as determinísticas primeiro.
 
 ---
 
@@ -493,7 +511,7 @@ Se o GO/NO-GO de 31/08 falhar, **corte nesta ordem**. Cada corte preserva o que 
 | # | Corte | Custo | Perde |
 | ---: | :--- | :--- | :--- |
 | 1 | **E3** (H3, overlay) | −130 exec | Uma hipótese secundária, já condicional |
-| 2 | **Multi-turno** (RF40, RF41, RF43) | −1,5 dia | Feature de produto; L10 já declara a lacuna |
+| 2 | **Multi-turno** (RF40, RF41) | −1,5 dia | Feature SHOULD; RF43 continua obrigatório sempre que a sessão multi-turno estiver habilitada |
 | 3 | **Braço C** (H4) | −272 exec | Uma hipótese; A vs B permanece intacto |
 | 4 | **Console de atendimento** | −1 dia | Mantém chat + dashboard |
 | 5 | **Front React → relatório HTML estático** | −2 dias | Demo ao vivo; resultados continuam. **O Langfuse continua servindo de inspeção** |
@@ -504,7 +522,7 @@ Se o GO/NO-GO de 31/08 falhar, **corte nesta ordem**. Cada corte preserva o que 
 - Experimento A vs B — é a hipótese central
 - Guarda de isolamento — sem ela nenhum resultado vale
 - Trace estruturado em JSONL — sem ele não há dado
-- Guardrail RF44 — é a diferença entre produto e protótipo
+- `PreActionGuard` e `PreDeliveryGuard` — impedem efeito e entrega inseguros
 - Meta-avaliação do juiz — sem ela as métricas de rubrica têm erro desconhecido
 
 ---
@@ -515,7 +533,7 @@ Se o GO/NO-GO de 31/08 falhar, **corte nesta ordem**. Cada corte preserva o que 
 | :--- | :--- | :--- | :--- |
 | **RC-01** | Núcleo não pronto em 31/08 | GO/NO-GO falha | Cortar pela §9 e iniciar o experimento no dia 01 de qualquer forma |
 | **RC-02** | Tool calling do Gemini instável | Taxa de `contract` alta na Fase 2 | Trocar de modelo **na Fase 2**, não depois |
-| **RC-03** | Cota real abaixo de 187/dia | Script de medição da Fase 0 | Recalcular: menos seeds ou menos repetições |
+| **RC-03** | Vazão medida não comporta o máximo | Script de medição da Fase 0 | Preservar 594; cortar E3/E4 antes de reduzir seeds ou repetições |
 | **RC-04** | Experimento inicia atrasado | Passar de 01/09 | Cada dia de atraso tira um dia da análise. Após 03/09, cortar o braço C |
 | **RC-05** | Bug de métrica descoberto tarde | Valores implausíveis | Recomputação é barata (RF34) — só não reexecute o agente |
 | **RC-06** | Rotulação humana empurrada | Não feita até 31/08 | **Fazer mesmo assim antes de ver resultados** — é o que garante a validade da meta-avaliação |
@@ -532,13 +550,13 @@ Se o GO/NO-GO de 31/08 falhar, **corte nesta ordem**. Cada corte preserva o que 
 | 24–25/08 | Contratos, portas, **fakes**, invariantes, **Langfuse** | `pytest` verde · trace visível na UI |
 | 26/08 | Camada de ferramentas | 18 tools geradas |
 | 27/08 | Agente mono + prompt base | um caso ponta a ponta |
-| 28/08 | Fila, runner e **guardrail RF44** | 20 casos, retomada funciona |
+| 28/08 | Fila, runner e **guards pré-ação/pré-entrega** | 20 casos, retomada funciona |
 | 29–30/08 | Golden dataset e métricas | métricas sobre traces reais |
 | 31/08 | Multi-agente | 🚦 **GO / NO-GO** |
-| 01–02/09 | 🔄 experimento rodando ‖ ingestão e multi-turno | 374 execuções |
-| 03/09 | 🔄 ‖ console + chat | 561 execuções |
-| 04/09 | 🔄 ‖ dashboard de hipóteses | 748 execuções |
-| 05–06/09 | 🔄 ‖ juiz, meta-avaliação, estatística | **1.021 execuções ✓** |
-| 07/09 | Análise, README, apresentação | veredito das 4 hipóteses |
+| 01–02/09 | 🔄 experimento rodando ‖ ingestão e multi-turno | progresso conforme vazão medida |
+| 03/09 | 🔄 ‖ console + chat | núcleo priorizado |
+| 04/09 | 🔄 ‖ dashboard de hipóteses | E3/E4 apenas se autorizadas pelo orçamento |
+| 05–06/09 | 🔄 ‖ juiz, meta-avaliação, estatística | 594 obrigatórias; até 996 condicionais |
+| 07/09 | Análise, README, apresentação | veredito ou não-execução explícita por hipótese |
 | **08/09** | **Entrega e apresentação** | |
 | — | 🎁 §8 — extras, **só se sobrar tempo** | E-V2 → ToolCorrectness → E-T2 → E-A6 → … |

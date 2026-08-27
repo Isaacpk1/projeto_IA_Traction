@@ -242,15 +242,15 @@ Futuro com desenho pronto** — o que vale mais que uma implementação apressad
 
 | | |
 | :--- | :--- |
-| **Comparação** | Tool ausente do schema **vs** instrução no prompt, sob casos adversariais |
-| **Constante** | Modelo, casos adversariais |
+| **Comparação** | `PreActionGuard` **vs** instrução no prompt, sob casos adversariais e em dry-run |
+| **Constante** | Arquitetura A, modelo, prompt-base, tools e casos adversariais |
 | **Permite concluir** | Com que frequência a instrução falha sob pressão |
-| **Custo** | 75 execuções |
+| **Custo** | 50 execuções |
 | **Valor** | **Alto** — o falso agir é o erro de maior custo do sistema |
 
-> **Nota sobre o conteúdo empírico.** P2.1 (zero execução indevida na multi) é verdadeira por
-> construção e não é descoberta. O conteúdo empírico está em P2.2 e P2.3 — **quanto** a instrução
-> falha.
+> **Nota sobre o conteúdo empírico.** P2.1 (zero efeito externo após o gateway) é verdadeira por
+> construção e não é descoberta. O conteúdo empírico está em P2.2 — **quanto** a instrução falha.
+> O braço `prompt_only` usa um provider dry-run e nunca chama uma ação externa real.
 
 ---
 
@@ -276,7 +276,7 @@ Futuro com desenho pronto** — o que vale mais que uma implementação apressad
 | | |
 | :--- | :--- |
 | **Comparação** | Vereditos do LLM-juiz **vs** rotulação humana cega, em amostra |
-| **Custo** | 30 rotulações manuais |
+| **Custo** | 40 rotulações manuais: 10 de calibração + 30 de validação, sem sobreposição |
 | **Permite concluir** | Se as métricas de rubrica são confiáveis |
 | **Valor** | **Alto** — sem isso, toda métrica de rubrica tem erro desconhecido |
 
@@ -347,19 +347,20 @@ aproveitadas: **E-T2** e **E-V2**.
 
 ## 9. Portfólio
 
-### 9.1 Declarado — o núcleo
+### 9.1 Declarado — núcleo e máximo condicional
 
 | Exp. | Hipótese | Execuções | Julgamentos |
 | :--- | :--- | ---: | ---: |
 | E-A1 | H1 — arquitetura | 544 | 544 |
-| E-A2 | H4 — heterogeneidade de modelo | 272 | 272 |
-| E-S1 | H2 — segurança | 75 | 75 |
-| E-T1 | H3 — overlay (amostra) | 130 | 130 |
-| E-V1 | Meta-avaliação | — | 30 humanas |
-| | **Total** | **1.021** | **1.021** |
+| E-S1 | H2 — segurança | 50 | 50 |
+| | **Núcleo obrigatório** | **594** | **594** |
+| E-A2 | H4 — heterogeneidade de modelo, condicional | +272 | +272 |
+| E-T1 | H3 — overlay (amostra), condicional | +130 | +130 |
+| E-V1 | Meta-avaliação | — | 40 humanas |
+| | **Máximo condicional** | **996** | **996** |
 
-**Viabilidade:** 1.021 ÷ 187 execuções/dia ≈ **5,5 dias** de execução do agente; julgamento em
-paralelo a 250/dia ≈ 4,1 dias. Restam ~9 dias para implementar, analisar e apresentar.
+**Viabilidade:** calculada depois do piloto como `RPD / p95(chamadas por execução)` para cada braço.
+E3 e E4 só são habilitados se o orçamento medido preservar a conclusão do núcleo e a análise.
 
 ### 9.2 Extensões, em ordem de prioridade
 
@@ -397,7 +398,7 @@ suficiente para que **algo pareça significativo por acaso**. Isso é matemátic
 Três regras que tornam o resultado defensável:
 
 **① Predições escritas antes.** Toda hipótese declara direção esperada antes da execução —
-P1.1–P1.4, P2.1–P2.3, P3.1–P3.3, P4.1–P4.2 já estão em
+P1.1–P1.4, P2.1–P2.2, P3.1–P3.3, P4.1–P4.3 já estão em
 [`07-plano-experimental.md`](./07-plano-experimental.md). Nenhuma predição é adicionada depois de
 ver os dados.
 
@@ -407,7 +408,7 @@ veredito. As demais são secundárias e reportadas como exploratórias.
 | Hipótese | Métrica primária |
 | :--- | :--- |
 | H1 | M4 × intensidade de degradação (dose-resposta) |
-| H2 | M10 — falso agir |
+| H2 | M10 — tentativa insegura antes do gateway |
 | H3 | M7 — afirmação vedada |
 | H4 | M4 — acerto de decisão, a custo reduzido |
 
@@ -426,7 +427,7 @@ predição refutada é resultado; uma predição omitida é viés.
 | Data | Decisão | Motivo |
 | :--- | :--- | :--- |
 | 24/08 | E-A1, E-S1, E-T1, E-V1 no núcleo | Cobrem as hipóteses declaradas originalmente |
-| 24/08 | E-A2 (H4) promovido a declarado | Cota resolvida com Gemini; +272 execuções cabem no prazo |
+| 24/08 | E-A2 (H4) promovido a declarado condicional | Executar apenas se o piloto confirmar cota separada e prazo para +272 execuções |
 | 24/08 | E-T2 e E-V2 identificados como melhores candidatos | Alto valor, custo baixo; E-T2 resolve L11 |
 | 24/08 | **E-A6** (verificação adversarial) registrado como candidato prioritário | Encaixe direto no modo de falha do domínio; entra se houver folga, não agora |
 | 24/08 | E-A5, E-P3, E-T3, E-A4, E-V3 descartados | Custo desproporcional ao que acrescentam |

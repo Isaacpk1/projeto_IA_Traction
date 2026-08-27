@@ -77,7 +77,7 @@ de LLM é externo e substituível: a arquitetura não depende de um modelo espec
 │  └───────┬──────────┘                   │                                 │
 │          │ MCP (JSON-RPC / stdio)       │ lê traces                       │
 │  ┌───────▼──────────────────────────┐   │                                 │
-│  │  C4 · Servidor MCP               │   │                                 │
+│  │  C4 · Camada de tools            │   │                                 │
 │  │  Núcleo genérico OpenAPI→tools   │   │                                 │
 │  │  + Overlay de domínio            │   │                                 │
 │  └───────┬──────────────────────────┘   │                                 │
@@ -114,7 +114,7 @@ de LLM é externo e substituível: a arquitetura não depende de um modelo espec
 
 ## 4. C4 Nível 3 — Componentes
 
-### 4.1 C4 · Servidor MCP — as duas camadas
+### 4.1 C4 · Camada de tools — núcleo e overlay
 
 Materialização do princípio **P1**.
 
@@ -198,8 +198,9 @@ tools:
       permaneceu incerto.
 ```
 
-O `tier` alimenta simultaneamente três mecanismos: composição de tools por agente (RF12), exigência
-de confirmação (RF14) e validação de permissão (RF13). Uma linha declarativa, três garantias.
+Os metadados do overlay alimentam três mecanismos: `tier` controla a composição por agente (RF12),
+`requires_confirmation` controla RF14 e `required_permission` controla RF13. São políticas
+distintas, todas revalidadas no gateway antes de uma ação de impacto.
 
 ---
 
@@ -220,7 +221,7 @@ condições experimentais da hipótese H1.
    └───────────────────┬──────────────────────┘
                        │ todas as tools
                        ▼
-                  Servidor MCP
+                  Camada de tools
 ```
 
 Referência de comparação. Contexto único, sem handoff, sem perda de informação — e sem isolamento
@@ -255,10 +256,14 @@ nem separação de autoridade.
    ContextReport      InvestigationReport         ActionReport
 ```
 
-**Garantia estrutural (P2, RF12, RNF05).** O Investigador **não possui** tools `tier: impact` em seu
-schema. Não é uma instrução que ele possa desobedecer — é uma capacidade que ele não tem. A
-composição é validada na inicialização; interseção não-vazia entre o conjunto do Investigador e o
-conjunto `impact` aborta o processo.
+**Separação estrutural de capacidade (RF12, RNF05).** O Investigador **não possui** tools
+`tier: impact` em seu schema. A composição é validada na inicialização; interseção não-vazia entre o
+conjunto do Investigador e o conjunto `impact` aborta o processo. Isso reduz a superfície de ataque,
+mas não é autorização suficiente: o Executor possui essas tools.
+
+**Garantia de sistema (H2, RF13–RF15).** Toda chamada `tier: impact`, venha da arquitetura mono ou do
+Executor, atravessa um `PreActionGuard` no gateway. O gateway valida permissão, confirmação vinculada
+à ação e evidência ancorada **antes** de chamar a API. O LLM não pode contornar esse componente.
 
 #### Handoff tipado (P3, RF18)
 
@@ -356,7 +361,7 @@ async def react_loop(agent_ctx, messages, tools, tracer, max_steps):
 │  ├─ ArgumentScorer                    │  ├─ JudgeRunner      │
 │  ├─ DecisionScorer                    │  └─ MetaEvaluator    │
 │  ├─ PreconditionOrderScorer  ← H1     │      (kappa, RF27)   │
-│  ├─ SafetyScorer  (falso agir)  ← H2  │                      │
+│  ├─ SafetyScorer  (tentativa insegura) ← H2                  │
 │  ├─ GroundingChecker (RF25)           │  modelo ≠ agente     │
 │  └─ StabilityScorer                   │  (RNF09)             │
 └──────────────────────────┬───────────────────────────────────┘
@@ -464,24 +469,43 @@ class Delivered(BaseModel):
     """O que foi ENTREGUE ao solicitante — depois do guardrail (RF44)."""
     decision: Literal["orientar", "agir", "escalar"]
     guardrail_verdict: Literal["pass", "blocked"]
-    guardrail_failed_checks: list[Literal["V1", "V2", "V3"]] = []
+    guardrail_failed_checks: list[Literal["V1", "V2", "V3"]] = Field(default_factory=list)
     guardrail_reason: str | None = None
+
+class ActionAttempt(BaseModel):
+    tool: str
+    args: dict
+    requested_at_step: int
+    pre_action_verdict: Literal["pass", "blocked", "dry_run"]
+    failed_preconditions: list[Literal["permission", "confirmation", "evidence"]] = Field(default_factory=list)
+    external_call_emitted: bool
 
 class ExecutionTrace(BaseModel):
     run_id: str
+    task_id: str
+    execution_id: str
     case_id: str
     repetition: int
     architecture: Literal["mono", "multi"]
+    experiment_id: str | None
+    arm: str
     # metadados de reprodutibilidade — RNF15
-    model: str
-    model_version: str
+    models_by_agent: dict[str, str]
+    model_versions_by_agent: dict[str, str]
+    provider_by_agent: dict[str, str]
     temperature: float
     api_seed: str | None
-    overlay_version: str
+    degradation_intensity: float | None # preditor exógeno calculado antes da execução
+    prompt_version: str
+    overlay_version: str                # `<versão>:<modo>`, ex.: `1:raw`
+    tool_schema_version: str
+    api_contract_version: str
     dataset_version: str
+    code_commit: str
     # execução
     steps: list[TraceStep]
     handoffs: list[Handoff]
+    action_attempts: list[ActionAttempt]
     resolution: Resolution | None      # decisão do agente
     delivered: Delivered | None        # decisão entregue — RF44
     stop_reason: Literal["sufficient","max_steps","error","budget"]
@@ -506,16 +530,18 @@ class GoldenCase(BaseModel):
     root_question: str
     degradation_mode: Literal["complete","partial","inconclusive",
                               "conflict","unavailable","stale","pending"]
+    degradation_probes: list[ExpectedStep] # conjunto fixo; nunca visível ao agente
     expected_path: list[ExpectedStep]
     expected_decision: Literal["orientar","agir","escalar"]
     required_evidence: list[str]      # deve aparecer
     forbidden_claims: list[str]       # não pode aparecer (ex.: "ISO 10816")
-    required_preconditions: list[str] # tools que devem preceder a conclusão
+    required_preconditions: list[RequiredFact] # fatos exigidos; admite fontes alternativas
 ```
 
 > Os campos `forbidden_claims` e `required_preconditions` não existem no gabarito original fornecido.
 > São a formalização adicionada por este projeto — e é o que permite medir RF07 e a hipótese H1 de
-> forma determinística.
+> forma determinística. Cada `RequiredFact` descreve o fato esperado e as fontes/caminhos de campo
+> que podem comprová-lo; não obriga uma tool específica quando outra retorna a mesma evidência.
 
 ---
 
@@ -530,7 +556,7 @@ class GoldenCase(BaseModel):
 | :--- | :--- | :--- |
 | Linguagem | Python 3.11+ | Alinhado ao material fornecido |
 | Gerenciador | `uv` | Mesmo do repositório base; resolução rápida e lockfile |
-| Servidor MCP | MCP SDK Python | Geração a partir de OpenAPI; transporte stdio |
+| Camada de tools | Python, PyYAML, httpx | Geração a partir de OpenAPI; envelope MCP opcional |
 | Orquestração | LangGraph | Grafo multi-agente, checkpointer, retomada durável |
 | Loop do agente | Próprio (~40 linhas) | Controle de política de parada e instrumentação sob medida |
 | Cliente LLM — agente | `google-genai` | SDK oficial do Gemini, com function calling |
@@ -559,11 +585,11 @@ class GoldenCase(BaseModel):
 
 | Papel | Provedor | Modelo | Cota | Vazão |
 | :--- | :--- | :--- | :--- | ---: |
-| **Agente** (todos os papéis) | Google AI Studio | Gemini 2.5 Flash, `temperature = 0` | 1.500 req/dia | 187 exec/dia |
-| **Juiz** | Groq | `compound` — família e provedor distintos | 250 req/dia | 250 julg./dia |
-| **Eixo H3** | OpenRouter | modelo aberto `:free` | 50 req/dia | amostra |
+| **Agente** (todos os papéis) | Google AI Studio | Gemini 2.5 Flash, `temperature = 0` | validar na conta | vazão definida pelo piloto |
+| **Juiz** | Groq | modelo configurado, família e provedor distintos | validar na conta | definida pelo piloto |
+| **Eixo H3** | OpenRouter | modelo aberto `:free` | validar na conta | amostra condicionada |
 
-> **RF33 — homogeneidade obrigatória.** Todos os papéis de agente usam o **mesmo** modelo em E1/E2.
+> **RF33 — homogeneidade obrigatória.** Todos os papéis de agente usam o **mesmo** modelo em E1.
 > Heterogeneidade entre papéis tornaria impossível separar o efeito da arquitetura do efeito do
 > modelo. O juiz é exceção legítima: não integra o sistema medido, e ser distinto é exigência do
 > RNF09.
@@ -642,32 +668,47 @@ para uma propriedade que o projeto não requer.
 
 ---
 
-### ADR-13 — Defesa em camadas: três mecanismos, três momentos
+### ADR-13 — Defesa em camadas: quatro mecanismos, quatro momentos
 
-**Contexto.** A segurança do agente estava apoiada em dois mecanismos — composição por `tier` e
-instrução em prompt. Faltava a pergunta: *e se o agente produzir uma resolução com evidência
-inventada?* Nada no caminho de saída impediria a entrega.
+**Contexto.** A composição por `tier` impede o Investigador de agir, mas o Executor continua capaz
+de fazê-lo. Além disso, uma resolução pode citar evidência inventada. Segurança de capacidade,
+autorização da ação e segurança da resposta são problemas distintos.
 
-**Decisão.** Três mecanismos, em momentos distintos, com garantias distintas:
+**Decisão.** Quatro mecanismos, em momentos distintos, com garantias distintas:
 
 | Mecanismo | Quando age | Garantia | Custo |
 | :--- | :--- | :--- | :--- |
-| **Composição por `tier`** | **antes** | determinística — a tool não existe no schema | zero |
+| **Composição por `tier`** | **na composição** | determinística por papel; reduz capacidade | zero |
 | **Instrução no prompt** | **durante** | probabilística — o modelo pode ignorar | zero |
-| **Guardrail (RF44)** | **depois** | determinística — mas o erro já aconteceu | ~1 ms |
+| **`PreActionGuard`** | **antes da API** | determinística — valida RF13–RF15 | ~1 ms |
+| **`PreDeliveryGuard` (RF44)** | **antes da resposta** | determinística — V1–V3 | ~1 ms |
 
-**Consequências.** ✅ Nenhum mecanismo isolado precisa ser perfeito. ✅ Cada camada pega o que a
-anterior deixou passar, e sabe-se **o que cada uma não pega**. ✅ O guardrail é gratuito e
-reprodutível — pode rodar em produção e no experimento sem alterar custo.
-❌ O guardrail age tarde: quando ele dispara, a investigação já consumiu cota.
+**Consequências.** ✅ Uma resolução ruim não produz efeito externo nem chega ao usuário. ✅ A
+separação por papel continua reduzindo a superfície sem ser confundida com autorização. ✅ Os dois
+guards são determinísticos e reproduzíveis. ❌ Quando bloqueiam, a investigação já consumiu cota.
 
-**O juiz LLM fica fora das três camadas** — ele mede, não protege. Ver RF44.
+**O juiz LLM fica fora das quatro camadas** — ele mede, não protege. Ver RF44.
 
-**Quarta camada, registrada como evolução:** um agente de **verificação adversarial** antes de ações
+**Camada probabilística adicional, registrada como evolução:** um agente de **verificação adversarial** antes de ações
 de impacto — instruído a refutar a conclusão em vez de confirmá-la. Probabilístico como a instrução
 em prompt, mas **independente** do primeiro julgamento, o que o torna complementar. Fora do ciclo
 atual por custo (~300 execuções); catalogado como **E-A6** em
 [`10-matriz-de-experimentos.md`](./10-matriz-de-experimentos.md).
+
+---
+
+### ADR-14 — Trace canônico em JSONL; observabilidade como sink secundário
+
+**Contexto.** Langfuse melhora a inspeção, mas sua indisponibilidade não pode interromper o produto
+nem perder o dado experimental.
+
+**Decisão.** `CompositeTraceSink` grava primeiro no `JsonlTraceSink`, que é canônico e bloqueante.
+Depois tenta o `LangfuseTraceSink`; falhas do sink secundário são registradas e não propagam. Métricas
+e reprocessamento sempre leem o artefato canônico, nunca dependem do Langfuse.
+
+**Consequências.** ✅ Observabilidade não vira ponto único de falha. ✅ O experimento pode ser
+reproduzido sem serviço externo. ❌ Pode haver atraso ou ausência temporária de traces na interface
+do Langfuse; o console deve indicar essa degradação.
 
 ---
 

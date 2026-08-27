@@ -70,7 +70,7 @@ apenas orientar é o erro mais caro do sistema.
 ## 4. Solução proposta
 
 Um **sistema de suporte técnico industrial em nível de produto** — recebe tickets continuamente,
-investiga com agentes de IA integrados à API da TRACTIAN por uma camada MCP, e decide entre orientar,
+investiga com agentes de IA integrados à API da TRACTIAN por uma camada de tools, e decide entre orientar,
 agir ou escalar — acompanhado do **arnês de avaliação** que mede sua confiabilidade.
 
 > **O enquadramento define tudo o que segue.** Este não é um experimento acadêmico com 17 casos.
@@ -87,7 +87,7 @@ coloque um agente em produção precisa tomar**:
 | Hipótese | Como decisão de produto |
 | :--- | :--- |
 | **H1** mono vs multi-agente | *Que arquitetura eu coloco em produção?* |
-| **H2** garantia estrutural vs instrução | *Como impeço o agente de executar ação indevida no cliente?* |
+| **H2** garantia estrutural vs instrução | *Como bloqueio uma ação indevida antes de qualquer efeito externo?* |
 | **H3** overlay semântico | *Quanto a descrição das ferramentas muda o comportamento?* |
 | **H4** modelo por papel | *Quanto economizo baixando o modelo nos papéis fáceis?* |
 
@@ -158,6 +158,12 @@ O detalhamento das hipóteses, variáveis e método está em
 | Deploy em nuvem | Execução local via Compose |
 | Dados reais de clientes | O material é sintético por design |
 | Ingestão de sinal bruto de sensor | A API já entrega sinais em formato didático |
+
+> **Fronteira de confiança.** Sem autenticação, `x-user-id`, `company_id` e `asset_id` são entradas
+> confiáveis apenas no ambiente acadêmico controlado. A demonstração não deve ser descrita como
+> pronta para produção nem exposta em rede não confiável. Em produção, identidade autenticada,
+> vínculo usuário–empresa, autorização no backend, proteção de segredos, redaction e retenção de
+> traces são pré-requisitos — não extras cosméticos.
 
 ## 6. Restrições
 

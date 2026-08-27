@@ -64,7 +64,7 @@ fazer mais chamadas e envolver mais agentes. O custo total é medido por braço.
 | :--- | ---: | :--- |
 | Reduzir passos de 12 → 8 | ~48% | Menos investigação possível; casos difíceis podem truncar |
 | Enxugar descrições do overlay | ~20% | **É a variável independente de H3** — não pode ser mexida livremente |
-| Resumir séries longas na camada MCP | ~15% | **Muda o que o agente vê** — afeta a validade da medição |
+| Resumir séries longas na camada de tools | ~15% | **Muda o que o agente vê** — afeta a validade da medição |
 | Podar retornos antigos do contexto | ~30% | Altera o mecanismo que H1 investiga — proibido em E1 |
 
 > As três últimas interferem no que está sendo medido. Só a primeira é gratuita do ponto de vista
@@ -121,9 +121,9 @@ logo "mono heterogêneo" não existe. Comparar A com C mudaria arquitetura **e**
 simultaneamente, e nenhuma análise posterior separaria os efeitos. O runner valida a combinação
 (arquitetura, atribuição) contra a lista de braços previstos e aborta se não corresponder (RF33).
 
-**Por que baratear em vez de reforçar.** Gemini 2.5 Pro tem 50 requisições/dia na camada gratuita —
-6 execuções. Inviável como "modelo forte" no investigador. A heterogeneidade viável é reduzir a
-capacidade nos papéis fáceis, que por acaso é a decisão real de quem coloca um agente em produção.
+**Por que baratear em vez de reforçar.** O desenho conservador não presume cota suficiente para um
+modelo mais forte no investigador; o piloto verifica isso. A heterogeneidade planejada reduz a
+capacidade nos papéis fáceis, que é também uma decisão real de produto.
 
 **Validação operacional:** o piloto verifica se Flash e Flash-Lite possuem cotas independentes na
 conta usada. H4 permanece condicional até essa confirmação.
@@ -339,11 +339,16 @@ UPDATE tasks
    SET state='leased', leased_by=:worker, lease_expires=:agora+:ttl
  WHERE task_id = (
    SELECT task_id FROM tasks
-    WHERE run_id=:run AND state='pending' AND attempts < :max
+    WHERE state='pending' AND attempts < :max
+      AND (:run_id IS NULL OR run_id=:run_id)
     ORDER BY attempts ASC, priority DESC, received_at ASC LIMIT 1
  )
 RETURNING task_id, case_id, architecture, seed, repetition;
 ```
+
+No worker contínuo, `:run_id` é `NULL` e tickets e experimentos competem pela mesma fila; no comando
+de retomada de uma rodada, o parâmetro restringe o lease àquele experimento. Em SQL real, a decisão
+entre esses dois escopos é montada com cláusulas parametrizadas — nunca com `run_id = NULL`.
 
 `ORDER BY attempts ASC, priority DESC, received_at ASC` combina três critérios, nessa ordem:
 
@@ -362,7 +367,7 @@ RETURNING task_id, case_id, architecture, seed, repetition;
 
 | ID | Escopo | Geração | Propósito |
 | :--- | :--- | :--- | :--- |
-| `experiment_id` | E1, E2, E3 | fixo | Agrupa varreduras |
+| `experiment_id` | E1, E2, E3, E4 | fixo | Agrupa varreduras |
 | `run_id` | uma varredura de configuração | ULID | Isola uma rodada completa |
 | **`task_id`** | uma unidade de trabalho | **determinístico** — hash da tupla | **Idempotência** |
 | **`execution_id`** | **uma tentativa** da task | **ULID por tentativa** | **Separa infra de comportamento** |
@@ -702,11 +707,11 @@ consumo_hoje aproxima de 1.500
 | Experimento | Hipótese | Execuções | Status | Prazo |
 | :--- | :--- | ---: | :--- | :--- |
 | **E1** — A vs B, 8 seeds × 2 reps | H1 | 544 | núcleo | calcular após piloto A/B |
-| **E2** — adversariais, A vs B | H2 | 50 | núcleo | calcular após piloto A/B |
+| **E2** — `prompt_only` vs `pre_action_guard`, arquitetura A, dry-run | H2 | 50 | núcleo | calcular após piloto das duas políticas |
 | **Núcleo** | | **594** | obrigatório | precisa caber na janela medida |
-| **E3** — overlay pareado | H3 | +34 | condicional | só após o núcleo |
+| **E3** — overlay + eixo de modelo, amostra | H3 | +130 | condicional | só após o núcleo |
 | **E4** — B vs C | H4 | +272 | condicional | só após piloto C |
-| **Máximo** | | **900** | com extensões | não é compromisso do núcleo |
+| **Máximo** | | **996** | com extensões | não é compromisso do núcleo |
 
 ### 11.2 Folga
 
@@ -722,7 +727,7 @@ seeds conforme o plano de contingência; E3 e E4 são cortados primeiro.
 | 3. Rotulação cega | — | Rotular amostra **antes** de ver agregados |
 | 4. E1 + E2 | 594 | Rodada definitiva do núcleo |
 | 5. Julgamento | 594 | Rubrica + meta-avaliação |
-| 6. E3 / E4 | +34 / +272 | Condicionais, nessa ordem de custo |
+| 6. E3 / E4 | +130 / +272 | Condicionais, nessa ordem de custo |
 
 ---
 
@@ -764,7 +769,7 @@ considerada.
 | Requisito | Mudança |
 | :--- | :--- |
 | **RF16** | Limite de passos corrigido de 12 para **8** — decisão de orçamento, §2.1 |
-| **RF33** *(novo)* | Homogeneidade de modelo entre papéis de agente em E1/E2 — §3.3 |
+| **RF33** *(novo)* | Homogeneidade de modelo entre papéis quando arquitetura varia em E1 — §3.3 |
 | **RNF16** *(novo)* | Guarda de cota diária com retomada automática — §3.4 |
 | **RNF14** | Atendido por Docker Compose — §7.2, ADR-10 |
 | **RNF17** *(novo)* | Coordenação efêmera sem perda de estado durável — ADR-11 e `11-camada-de-analise.md` §8 |

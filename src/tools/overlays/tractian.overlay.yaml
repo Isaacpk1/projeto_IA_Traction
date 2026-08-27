@@ -1,0 +1,310 @@
+# =============================================================================
+# Overlay de domínio — TRACTIAN Industrial API v1
+#
+# ⚠️ ESTE É O ÚNICO ARQUIVO DA CAMADA DE FERRAMENTAS COM CONHECIMENTO DE DOMÍNIO.
+#
+# O núcleo genérico (tools/core/) converte o contrato OpenAPI em tools sem saber o
+# que é um baseline. A semântica que faz o modelo escolher a tool certa mora aqui,
+# declarativamente e versionada.
+#
+# Os metadados alimentam três mecanismos DISTINTOS, revalidados no gateway:
+#   tier                  → composição por papel        (RF12 / RNF05)
+#   required_permission   → validação de permissão      (RF13)
+#   requires_confirmation → exigência de confirmação    (RF14)
+#
+# `description` é a variável independente do eixo H3 (overlay `raw` vs `enriched`).
+# Alterá-la muda o que o experimento mede — ver doc 09 §2.2.
+# =============================================================================
+version: 1
+api: tractian-industrial-v1
+contract_version: 0.1.0
+
+defaults:
+  tier: read
+
+tools:
+
+  # ---- Contexto -------------------------------------------------------------
+
+  getCurrentUser:
+    tier: read
+    description: |
+      Retorna o perfil da pessoa que abriu o chamado: papel, permissões e empresa.
+
+      As permissões determinam o que pode ser executado:
+        read         → apenas consulta
+        action_low   → ações de baixo impacto
+        action_high  → alterar configuração técnica, solicitar retreinamento
+        escalate     → encaminhar para análise humana
+
+      Consulte ANTES de propor qualquer ação de impacto. Propor ao usuário uma ação
+      que o perfil dele não permite é um erro de atendimento, não apenas um bloqueio.
+
+      O papel também define o registro da resposta: um operador precisa de instrução
+      prática; um analista de confiabilidade espera o dado técnico.
+
+  getCompany:
+    tier: read
+    description: |
+      Retorna a empresa: segmento industrial e fuso horário.
+      Use para contextualizar o parque de máquinas e para interpretar timestamps.
+
+  listAssetsByCompany:
+    tier: read
+    description: |
+      Lista os ativos da empresa com criticidade e hierarquia.
+      Use quando o chamado mencionar um equipamento sem identificá-lo, ou quando a
+      pergunta for sobre o conjunto da planta e não sobre um ativo específico.
+
+  getAsset:
+    tier: read
+    description: |
+      Retorna o ativo: criticidade, hierarquia (planta, linha, ativo pai), pontos de
+      medição com status do sensor, e a configuração técnica.
+
+      Dois campos costumam decidir o caso:
+        points[].sensor_status  → offline ou degraded explica ausência de dado
+                                  e ausência de alerta melhor que qualquer inferência
+        config.machine_type     → determina se o modelo cobre o equipamento;
+                                  cruze com getModel antes de concluir por falha do modelo
+
+      A configuração (rotation_rpm, bearing_specs) é o que permite ler o espectro:
+      sem ela, um pico em frequência não tem interpretação.
+
+  # ---- Análises -------------------------------------------------------------
+
+  listAnalyses:
+    tier: read
+    description: |
+      Lista os diagnósticos automáticos do ativo. Filtre por `status` quando o chamado
+      for sobre um insight específico.
+
+      O campo `status` distingue causas que o cliente costuma confundir:
+        current       → vigente
+        stale         → desatualizado; o dado que o originou já não representa o ativo
+        pending       → ainda não processado — o insight não existe AINDA,
+                        o que é diferente de o modelo ter falhado
+        inconclusive  → processado sem conclusão
+
+      Um chamado do tipo "não recebi alerta" quase nunca se resolve aqui sozinho:
+      confirme o modo de detecção e o estado do baseline antes de concluir.
+
+  getAnalysis:
+    tier: read
+    description: |
+      Detalha um diagnóstico: tipo de falha, severidade, confiança, evidências e
+      limitações declaradas.
+
+      Dois campos condicionam a confiabilidade do insight, e ele NÃO os anuncia:
+        detection_mode                → baseline (desvio do normal aprendido)
+                                        ou symptom (presença do sintoma)
+        baseline_state_at_detection   → estado do baseline QUANDO a detecção ocorreu
+
+      Se `baseline_state_at_detection` for `invalidated` ou `learning`, o insight foi
+      gerado sob condição inválida e é SUSPEITO — mesmo com confiança alta. Confiança
+      alta sobre baseline inválido não é evidência forte, é evidência viciada.
+
+      O array `limitations` é declaração da própria API sobre o que limitou a análise.
+      Ignorá-lo e afirmar certeza é o erro mais comum neste domínio.
+    preconditions_for: [getBaseline, getDataQuality]
+
+  # ---- Dados técnicos -------------------------------------------------------
+
+  getBaseline:
+    tier: read
+    description: |
+      Retorna o baseline do ativo — o estado normal APRENDIDO do próprio equipamento a
+      partir de histórico sadio.
+
+      ⚠️ O limiar de alarme de RMS DERIVA DAQUI: features[].reference + tolerance.
+      NUNCA de norma ISO, NUNCA de tabela por classe de máquina, NUNCA de conhecimento
+      geral sobre vibração. Neste domínio, um limiar sem baseline obtido é uma
+      afirmação sem fundamento.
+
+      Campo `state`:
+        learning     → histórico insuficiente; NÃO há limiar confiável, e a ausência
+                       de alerta é explicada por isso
+        established  → limiar válido e utilizável
+        invalidated  → houve manutenção ou mudança de configuração; insights gerados
+                       neste estado são SUSPEITOS. Veja `invalidation_reason`
+
+      Campo `detection_mode`:
+        baseline  → detecção por desvio; o baseline é pré-requisito
+        symptom   → detecção sintomática (ex.: lubrificação); NÃO depende de baseline.
+                    Exigir baseline `established` aqui é erro — a falha é detectável
+                    pela presença do sintoma
+
+      Campo `learnable = false` significa que o modelo não consegue aprender baseline
+      para este tipo de máquina; só resta detecção sintomática.
+
+      Chame ANTES de concluir sobre qualquer análise cujo detection_mode seja baseline.
+    preconditions_for: [getAnalysis, listAnalyses]
+
+  getRmsSeries:
+    tier: read
+    description: |
+      Série temporal de RMS de vibração, em mm/s.
+
+      Traz consigo a referência necessária para interpretá-la:
+        baseline_reference  → RMS de referência aprendido (null se learning ou symptom)
+        baseline_state      → estado do baseline
+        alarm_threshold     → limiar derivado do baseline (reference + tolerância)
+
+      Um valor de RMS isolado não significa nada sem `alarm_threshold`. Compare sempre
+      contra o limiar do PRÓPRIO ativo — este endpoint já o entrega, então não há
+      motivo para recorrer a norma genérica.
+
+      Tendência importa tanto quanto valor absoluto: crescimento consistente abaixo do
+      limiar é informação, não ruído.
+
+  getSpectrum:
+    tier: read
+    description: |
+      Espectro FFT simplificado: picos relevantes com frequência, amplitude e anotação.
+
+      As anotações (`1x`, `2x`, `BPFO`, `2x line`) ligam o pico à causa física, mas a
+      leitura depende da configuração do ativo (rotation_rpm, bearing_specs) — obtenha
+      getAsset se precisar interpretar frequências.
+
+      Campo `bands_missing`: presente em modo `partial`. Bandas faltando significam que
+      a evidência espectral está INCOMPLETA. Declare a lacuna; não conclua como se o
+      espectro estivesse inteiro.
+
+  getDataQuality:
+    tier: read
+    description: |
+      Qualidade e frescor do dado que alimenta o diagnóstico.
+        completeness      → 0..1, cobertura da coleta
+        freshness_minutes → minutos desde a última amostra válida
+        snr_db            → relação sinal-ruído
+        staleness_flag    → dado obsoleto
+
+      Estes valores só têm significado comparados a `requirements` de getModel. Um
+      `snr_db` baixo isolado não prova nada; abaixo do `min_snr_db` do modelo, explica
+      por que o insight é frágil ou não foi gerado.
+
+      Cruze os dois antes de afirmar que houve falha do modelo.
+    preconditions_for: [getAnalysis]
+
+  # ---- Modelos --------------------------------------------------------------
+
+  getModel:
+    tier: read
+    description: |
+      Versão, cobertura, requisitos e estado de processamento do modelo de diagnóstico.
+
+      Três blocos, três perguntas distintas:
+        coverage[]        → o modelo suporta este machine_type?
+                            `can_learn_baseline = false` significa que só há detecção
+                            sintomática para este tipo — a ausência de baseline é
+                            esperada, não é defeito
+        requirements      → limiares mínimos de qualidade (min_completeness, min_snr_db).
+                            Compare com getDataQuality
+        processing_state  → idle | running | pending | delayed | failed
+                            `pending` ou `delayed` explica insight ausente SEM que haja
+                            qualquer falha: o processamento ainda não ocorreu
+
+      Distinguir "não processou ainda" de "processou e falhou" muda completamente a
+      resposta ao cliente e a decisão entre orientar e escalar.
+
+  # ---- Conhecimento ---------------------------------------------------------
+
+  searchKnowledge:
+    tier: read
+    description: |
+      Busca na base de conhecimento da plataforma: procedimentos, glossário e
+      orientações.
+
+      Use quando o chamado envolver terminologia de domínio, procedimento operacional
+      ou política da plataforma. É a fonte correta para "como funciona X" — preferível
+      a conhecimento geral, que neste domínio frequentemente diverge da plataforma.
+
+      Filtre por `type`: procedure | glossary | guidance.
+
+  getKnowledgeDoc:
+    tier: read
+    description: |
+      Recupera o documento completo de conhecimento pelo id.
+      Use após searchKnowledge, quando o trecho retornado não bastar.
+
+  # ---- Ações de impacto -----------------------------------------------------
+  # Toda tool abaixo é tier: impact. Elas NÃO são compostas no catálogo dos papéis
+  # de investigação (RF12), e toda chamada atravessa o PreActionGuard antes de
+  # qualquer efeito externo (RF13–RF15).
+
+  reprocessAnalysis:
+    tier: impact
+    requires_confirmation: true
+    required_permission: action_low
+    description: |
+      Reprocessa uma análise com os dados atualmente disponíveis.
+
+      CONSEQUÊNCIA: consome recurso de processamento e substitui o resultado anterior.
+
+      Só faz sentido se a causa do problema foi um dado desatualizado que JÁ FOI
+      corrigido. Reprocessar com o mesmo dado ruim produz o mesmo resultado ruim —
+      verifique getDataQuality antes de propor.
+
+      Se a causa for baseline invalidado ou cobertura ausente do modelo, reprocessar
+      NÃO resolve.
+
+  requestSpecialistAnalysis:
+    tier: impact
+    requires_confirmation: true
+    required_permission: action_low
+    description: |
+      Aciona análise humana especializada sobre um diagnóstico.
+
+      CONSEQUÊNCIA: aloca tempo de especialista.
+
+      Use quando a evidência automática for insuficiente ou conflitante e a decisão
+      exigir julgamento técnico. A justificativa deve enumerar o que foi verificado
+      e o que permaneceu incerto.
+
+  requestRetraining:
+    tier: impact
+    requires_confirmation: true
+    required_permission: action_high
+    description: |
+      Solicita retreinamento do modelo de diagnóstico.
+
+      CONSEQUÊNCIA: operação cara e demorada, que afeta TODOS os ativos cobertos pelo
+      modelo — não apenas o do chamado.
+
+      Só se justifica com evidência de falha sistemática do modelo. Um único diagnóstico
+      divergente NÃO é evidência de falha do modelo: verifique antes se a causa foi
+      baseline invalidado, qualidade de dado abaixo dos requisitos, ou machine_type
+      fora da cobertura. Nesses casos o modelo está correto e retreinar não resolve.
+
+  updateAssetConfig:
+    tier: impact
+    requires_confirmation: true
+    required_permission: action_high
+    description: |
+      Altera a criticidade ou a configuração técnica do ativo.
+
+      ⚠️ CONSEQUÊNCIA: invalida o baseline atual e força reaprendizado. O ativo ficará
+      SEM detecção por desvio até reestabelecer baseline — ou seja, a alteração cria
+      uma janela cega de monitoramento.
+
+      Informe essa consequência ao usuário ANTES de confirmar. Alterar configuração
+      para "resolver" um alerta é trocar um problema visível por um problema invisível.
+
+      Exige `justification` com ao menos 20 caracteres.
+
+  escalateCase:
+    tier: impact
+    requires_confirmation: false
+    required_permission: escalate
+    description: |
+      Encaminha o caso para análise humana.
+
+      Use quando a evidência for insuficiente, o conflito entre fontes for irresolvível
+      com os dados disponíveis, ou o caso exigir inspeção física do equipamento.
+
+      A justificativa deve enumerar O QUE FOI VERIFICADO e O QUE PERMANECEU INCERTO.
+      Escalar sem investigar é omissão; escalar declarando o que se apurou é a decisão
+      correta diante de evidência degradada.
+
+      Não requer confirmação: encaminhar para um humano é reversível e não produz
+      efeito sobre o equipamento nem sobre o modelo.

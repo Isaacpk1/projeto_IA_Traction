@@ -29,10 +29,11 @@ interpretação.
 
 ---
 
-### RF02 — Consultar a API industrial por camada MCP
+### RF02 — Consultar a API industrial pela camada de tools
 **Prioridade:** MUST
 
-O sistema deve acessar os 18 endpoints da API exclusivamente por tools expostas por um servidor MCP.
+O sistema deve acessar os 18 endpoints da API exclusivamente pela camada de tools gerada do contrato.
+Um envelope MCP pode expor a mesma camada, mas não é requisito do núcleo (ADR-01).
 Nenhum componente do agente pode emitir requisição HTTP direta à API industrial.
 
 **Verificação:** inspeção de código; toda chamada registrada no trace tem origem em `tools/call`.
@@ -43,7 +44,7 @@ Nenhum componente do agente pode emitir requisição HTTP direta à API industri
 ### RF03 — Gerar tools a partir do contrato OpenAPI
 **Prioridade:** MUST
 
-O servidor MCP deve derivar nome, parâmetros e schema de cada tool a partir de
+O parser da camada de tools deve derivar nome, parâmetros e schema de cada tool a partir de
 `api-contract.openapi.yaml`, sem definição manual por endpoint.
 
 **Verificação:** o conjunto de tools expostas corresponde 1:1 aos `operationId` do contrato;
@@ -147,6 +148,9 @@ Antes de entregar a resolução ao solicitante, o sistema deve aplicar verifica�
 
 Falha em qualquer uma **escala o caso para análise humana, sem retentativa**.
 
+RF44 é o **`PreDeliveryGuard`**: protege a resposta, não desfaz ações. Qualquer tool de impacto já
+foi protegida antes da execução pelo **`PreActionGuard`** de RF13–RF15.
+
 **Verificação:** resolução com evidência forjada não é entregue; o trace registra separadamente a
 decisão do agente e a decisão efetivamente entregue.
 **Origem:** segurança de produto · **Relacionado:** RF08, RF25, M16
@@ -155,7 +159,7 @@ decisão do agente e a decisão efetivamente entregue.
 > o comportamento correto: se o sistema não consegue garantir a resposta, um humano assume.
 
 > **⚠️ Por que o juiz LLM NÃO está aqui.** Três razões: latência (mais uma chamada por ticket), cota
-> (dobraria o custo, reduzindo de 187 para ~93 tickets/dia) e — decisiva — **contaminação do
+> (reduziria a vazão medida) e — decisiva — **contaminação do
 > experimento**: um juiz no caminho crítico faria H1 medir *agente + juiz*, não a arquitetura do
 > agente. Some-se que o juiz só é validado **depois** da meta-avaliação; pôr no caminho crítico um
 > componente de confiabilidade ainda não medida inverte a ordem.
@@ -167,7 +171,8 @@ decisão do agente e a decisão efetivamente entregue.
 ### RF43 — Manter o agente sem estado entre turnos
 **Prioridade:** MUST
 
-O agente **não** pode reter estado de sessão em memória entre turnos de um mesmo ticket. Todo contexto
+**Quando RF40/RF41 estiverem habilitados**, o agente **não** pode reter estado de sessão em memória
+entre turnos de um mesmo ticket. Todo contexto
 — evidências já coletadas, pergunta pendente, decisão parcial — deve ser persistido. Ao retomar,
 **qualquer worker** deve reconstruir o contexto a partir do registro de sessão.
 
@@ -293,6 +298,9 @@ evidências citadas, submetida por tool terminal dedicada.
 Na arquitetura multi-agente, agentes de investigação devem receber exclusivamente tools de
 `tier: read`. Tools de `tier: impact` devem ser expostas apenas ao agente executor.
 
+Essa separação reduz a superfície de capacidade, mas **não é a autorização final**: como o Executor
+possui tools de impacto, toda chamada também passa pelo `PreActionGuard` definido em RF13–RF15.
+
 **Verificação:** teste automatizado confirma que o conjunto de tools do agente investigador não
 intersecta o conjunto `tier: impact`.
 **Origem:** requisito de segurança · **Relacionado:** RNF05, hipótese H2
@@ -305,8 +313,8 @@ intersecta o conjunto `tier: impact`.
 Antes de executar ação de impacto, o sistema deve verificar que o perfil do usuário possui a
 permissão correspondente (`action_low`, `action_high` ou `escalate`).
 
-**Verificação:** o trace contém consulta ao perfil precedendo toda tentativa de ação; ações sem
-permissão não são tentadas.
+**Verificação:** o gateway valida a permissão imediatamente antes da chamada externa; ações sem
+permissão são bloqueadas mesmo que o LLM tente invocá-las.
 **Origem:** US13, US15, US16, US17
 
 ---
@@ -317,8 +325,8 @@ permissão não são tentadas.
 Ações marcadas `requires_confirmation` no overlay devem ser precedidas de confirmação explícita,
 apresentando ação pretendida, justificativa e consequência.
 
-**Verificação:** nenhuma tool `tier: impact` é executada sem evento de confirmação registrado
-imediatamente antes no trace.
+**Verificação:** o gateway rejeita toda tool `tier: impact` sem evento de confirmação válido,
+vinculado à ação e registrado imediatamente antes no trace.
 **Origem:** US13, US15, US16
 
 ---
@@ -329,8 +337,8 @@ imediatamente antes no trace.
 A justificativa de uma ação deve referenciar evidência coletada durante a investigação, não a
 solicitação do cliente isoladamente.
 
-**Verificação:** o campo de justificativa contém ao menos uma referência presente em
-`evidence_cited`.
+**Verificação:** antes do efeito externo, o gateway confirma que a justificativa contém ao menos uma
+referência resolvível no trace e presente em `evidence_cited`.
 **Origem:** US16, US17
 
 ---
@@ -353,7 +361,7 @@ orçamento de chamadas esgotado — registrando o motivo do encerramento.
 ### RF33 — Manter homogeneidade de modelo entre papéis de agente
 **Prioridade:** MUST
 
-**Quando a arquitetura é a variável manipulada** (E1 e E2), todos os papéis de agente —
+**Quando a arquitetura é a variável manipulada** (E1), todos os papéis de agente —
 orquestrador, contextualizador, investigador e executor — devem usar o mesmo modelo, na mesma
 configuração.
 
@@ -683,7 +691,7 @@ violação.
 **Prioridade:** MUST · **Categoria:** Arquitetura
 
 Integrar o sistema a outra API deve exigir apenas um novo contrato OpenAPI e um novo overlay, sem
-alteração no núcleo do servidor MCP nem na lógica dos agentes.
+alteração no núcleo da camada de tools nem na lógica dos agentes.
 
 **Critério de aceitação:** o núcleo genérico não contém nenhuma referência textual a conceito de
 domínio da TRACTIAN (`baseline`, `rms`, `spectrum`, `asset`). Verificado por varredura de código.
@@ -784,7 +792,8 @@ atendimento em curso.
 drenada na ordem de prioridade. A profundidade é observável no console.
 **Verificação:** teste de carga com submissão em rajada.
 
-> A vazão do sistema é limitada pela cota do provedor — cerca de 187 tickets/dia na camada gratuita.
+> A vazão do sistema é limitada pela cota efetiva do provedor e pelas chamadas por execução, ambas
+> medidas no piloto.
 > Acima disso, o gargalo não é a fila: é o contrato com o provedor. A fila decide **quando**
 > processar, não **quanto**.
 
@@ -810,13 +819,14 @@ estado.
 A suíte completa sobre o dataset base deve concluir em tempo compatível com iteração de
 desenvolvimento.
 
-**Critério de aceitação:** o núcleo experimental (E1 + E4 + E2 + E3 = 1.021 execuções) concluído em
-≤ 6 dias corridos, à vazão de 187 execuções/dia imposta pela cota do provedor.
-**Verificação:** medição em execução completa; consumo diário registrado.
+**Critério de aceitação:** o núcleo experimental (E1 + E2 = 594 execuções) cabe na janela restante
+após o piloto, usando o p95 observado de chamadas por execução de cada braço. E3 e E4 só são
+habilitados se o orçamento medido comportar o máximo condicional de 996 execuções.
+**Verificação:** projeção registrada após o piloto e medição na execução completa.
 
 > ⚠️ **A concorrência não determina a vazão.** O token bucket regula a taxa global na cota do
-> provedor (ADR-09): 3 workers ou 8 produzem os mesmos 15 RPM. Os workers existem apenas para
-> sobrepor latência de I/O. O teto que morde é o de requisições diárias.
+> provedor. Os workers apenas sobrepõem latência de I/O; a vazão é `RPD / p95(chamadas por
+> execução)` e pode diferir entre os braços.
 
 ---
 
@@ -849,11 +859,11 @@ sem intervenção manual além da configuração de credencial.
 ### RNF15 — Registro de configuração experimental
 **Prioridade:** MUST · **Categoria:** Reprodutibilidade
 
-Toda execução deve registrar modelo, versão, temperatura, seed, versão do overlay, arquitetura e
-identificador do dataset.
+Toda execução deve registrar modelo, versão e provedor **por agente**, temperatura, seed, braço,
+versões de prompt, overlay, schema de tools, contrato da API e dataset, além do commit do código.
 
-**Critério de aceitação:** todo resultado é reconstituível a partir dos metadados registrados, sem
-consulta a informação externa.
+**Critério de aceitação:** todo resultado identifica integralmente a configuração que o produziu,
+inclusive braços heterogêneos. Credenciais e segredos nunca são registrados.
 **Verificação:** validação de completude de metadados na suíte.
 
 ---

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Ambiente
+.env
+
+# ---------------------------------------------------------------------------
+# artifacts/ é o ARTEFATO EXPERIMENTAL (doc 09 §9.1) — bind mount do host, precisa
+# sobreviver a `docker compose down`. A fila e os traces das rodadas definitivas
+# acompanham o repositório de propósito: é o que permite reproduzir os resultados
+# sem chave de API.
+#
+# O que se ignora aqui é apenas o lixo de desenvolvimento — rodadas locais,
+# banco de teste. Os artefatos das rodadas que entram no relatório são
+# adicionados explicitamente com `git add -f`.
+# ---------------------------------------------------------------------------
+artifacts/queue.db
+artifacts/queue.db-wal
+artifacts/queue.db-shm
+artifacts/traces/dev_*/
+artifacts/runs/dev_*/
+
+# Frontend
+node_modules/
+frontend/dist/
