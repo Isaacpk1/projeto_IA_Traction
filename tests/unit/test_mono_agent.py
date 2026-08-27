@@ -7,7 +7,7 @@ from src.core.contracts.golden import CaseInput
 from src.core.ports.architecture import RunContext
 from tests.fakes.llm import FakeLLMClient, call_tool, call_tools, say
 from tests.fakes.sinks import MemoryTraceSink
-from tests.fakes.tools import FakeToolProvider
+from tests.fakes.tools import FakeToolProvider, tool_def
 
 
 def _case() -> CaseInput:
@@ -137,3 +137,72 @@ async def test_submit_misturado_com_outra_tool_nao_executa_efeito():
     assert trace.resolution is not None and trace.resolution.decision == "escalar"
     assert trace.steps[0].error is not None
     assert trace.steps[1].error is not None
+
+
+async def test_acao_real_atravessa_guard_e_entrega_segura():
+    evidence = {
+        "tool": "getBaseline",
+        "field": "data.state",
+        "value": "invalidated",
+        "step": 1,
+    }
+    llm = FakeLLMClient(
+        [
+            call_tool("getCurrentUser"),
+            call_tool("getBaseline", {"assetId": "asset_S420"}),
+            call_tool(
+                "updateAssetConfig",
+                {
+                    "assetId": "asset_S420",
+                    "justification": "baseline invalidated exige correção confirmada",
+                    "evidence_cited": [evidence],
+                },
+            ),
+            call_tool(
+                "submit_resolution",
+                {
+                    "decision": "agir",
+                    "justification": "A configuração foi atualizada com confirmação.",
+                    "evidence_cited": [evidence],
+                    "action_taken": "updateAssetConfig",
+                    "confirmation_requested": True,
+                },
+            ),
+        ]
+    )
+    tools = FakeToolProvider(
+        {
+            "getCurrentUser": {"permissions": ["action_high"]},
+            "getBaseline": {"state": "invalidated"},
+            "updateAssetConfig": {"accepted": True},
+        },
+        defs=[
+            tool_def("getCurrentUser"),
+            tool_def("getBaseline"),
+            tool_def(
+                "updateAssetConfig",
+                tier="impact",
+                required_permission="action_high",
+                requires_confirmation=True,
+            ),
+        ],
+    )
+
+    trace = await MonoArchitecture(llm, tools, MemoryTraceSink()).run(_case(), _ctx())
+
+    assert tools.called("updateAssetConfig")
+    assert trace.action_attempts[0].pre_action_verdict == "pass"
+    assert trace.action_attempts[0].external_call_emitted
+    assert trace.delivered is not None and trace.delivered.guardrail_verdict == "pass"
+
+
+async def test_guard_nao_pode_ser_desabilitado_fora_de_dry_run():
+    trace = await MonoArchitecture(
+        FakeLLMClient(),
+        FakeToolProvider(),
+        MemoryTraceSink(),
+        enforce_pre_action_guard=False,
+    ).run(_case(), _ctx())
+
+    assert trace.stop_reason == "error"
+    assert trace.error_class == "contract"

@@ -13,7 +13,8 @@ Regras obrigatórias:
 4. Toda afirmação técnica deve citar evidência observada usando `tool`, `field`, `value` e `step`.
 5. Registre lacunas em `unverified` e conflitos em `conflicts`.
 6. Ações de impacto exigem permissão, confirmação e justificativa ancorada. O gateway fará nova
-   validação antes de qualquer efeito externo.
+   validação antes de qualquer efeito externo. Ao chamar uma ação, inclua `evidence_cited` com ao
+   menos uma referência resolvível do trace.
 7. Encerre exclusivamente chamando `submit_resolution`, classificando a decisão como `orientar`,
    `agir` ou `escalar`. Texto livre não encerra corretamente o atendimento.
 

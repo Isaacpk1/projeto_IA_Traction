@@ -9,6 +9,7 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait
 
 from src.core.contracts.llm import LLMResponse, Message, Usage
 from src.core.contracts.tool import ToolCall, ToolDef
+from src.core.ports.event_bus import RateLimiterPort
 
 __all__ = ["GeminiClient"]
 
@@ -37,6 +38,7 @@ class GeminiClient:
         api_key: str | None = None,
         client: Any | None = None,
         max_attempts: int = 5,
+        rate_limiter: RateLimiterPort | None = None,
     ) -> None:
         try:
             from google import genai
@@ -47,6 +49,7 @@ class GeminiClient:
 
         self.model = model
         self.max_attempts = max_attempts
+        self.rate_limiter = rate_limiter
         self._client = client or genai.Client(api_key=api_key)
 
     async def aclose(self) -> None:
@@ -86,6 +89,9 @@ class GeminiClient:
             reraise=True,
         ):
             with attempt:
+                if self.rate_limiter is not None:
+                    await self.rate_limiter.acquire(self.provider)
+                    await self.rate_limiter.consume_daily(self.provider)
                 response = await self._client.aio.models.generate_content(
                     model=self.model,
                     contents=contents,

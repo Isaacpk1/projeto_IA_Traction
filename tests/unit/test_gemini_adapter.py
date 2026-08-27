@@ -32,10 +32,24 @@ class _Models:
         )
 
 
+class _Limiter:
+    def __init__(self) -> None:
+        self.acquired: list[str] = []
+        self.consumed: list[str] = []
+
+    async def acquire(self, provider: str, cost: int = 1) -> None:
+        self.acquired.extend([provider] * cost)
+
+    async def consume_daily(self, provider: str, cost: int = 1) -> int:
+        self.consumed.extend([provider] * cost)
+        return len(self.consumed)
+
+
 async def test_converte_historico_tools_config_e_resposta_sem_chamar_a_rede():
     models = _Models()
     client = SimpleNamespace(aio=SimpleNamespace(models=models))
-    adapter = GeminiClient(client=client)
+    limiter = _Limiter()
+    adapter = GeminiClient(client=client, rate_limiter=limiter)
     messages = [
         Message(role="user", content="investigue"),
         Message(
@@ -60,3 +74,5 @@ async def test_converte_historico_tools_config_e_resposta_sem_chamar_a_rede():
     assert response.message.tool_calls[0].name == "getAsset"
     assert response.usage.tokens_in == 7 and response.usage.tokens_out == 3
     assert response.model_version == "test-version"
+    assert limiter.acquired == ["google-ai-studio"]
+    assert limiter.consumed == ["google-ai-studio"]

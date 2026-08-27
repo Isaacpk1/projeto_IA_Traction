@@ -46,7 +46,14 @@ class WorkQueue(Protocol):
         """
         ...
 
-    def complete(self, task_id: str, execution_id: str, *, now: float | None = None) -> None: ...
+    def complete(
+        self,
+        task_id: str,
+        execution_id: str,
+        *,
+        worker: str | None = None,
+        now: float | None = None,
+    ) -> None: ...
 
     def fail(
         self,
@@ -54,7 +61,9 @@ class WorkQueue(Protocol):
         error_class: ErrorClass,
         *,
         execution_id: str | None = None,
+        worker: str | None = None,
         now: float | None = None,
+        max_attempts: int = 3,
     ) -> None:
         """Aplica a política da taxonomia (doc 09 §6).
 

@@ -11,18 +11,19 @@ avaliação** que mede sua confiabilidade.
 > O mesmo worker que processa um ticket de cliente processa um caso da suíte, pelo mesmo caminho de
 > código (RF39) — é isso que garante que a avaliação mede o sistema real.
 
-> **Status em 26/08/2026:** fundação, camada de tools e núcleo mono-agente implementados; a
-> validação ponta a ponta com Gemini/API local e a observabilidade no Langfuse ainda estão pendentes.
+> **Status em 27/08/2026:** fundação, tools, núcleo mono-agente e infraestrutura determinística da
+> Fase 3 implementados; a validação ponta a ponta com Gemini/API local e o Langfuse seguem pendentes.
 > Cronograma, estratégia de testes e plano de contingência em
 > [`docs/14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md).
 > As seções de **Resultados** estão marcadas como pendentes e serão preenchidas após a execução dos
 > experimentos.
 
 **Implementado agora:** contratos e portas do núcleo, fakes de teste, invariantes arquiteturais,
-camada OpenAPI, papéis declarativos, loop ReAct mono, `submit_resolution`, adaptador Gemini e trace
-JSONL canônico. **Próximo marco:** validar o mesmo caso com Gemini/API local, conectar o sink
-secundário do Langfuse e então iniciar fila, runner e guardrails. A estrutura completa descrita
-abaixo é a arquitetura-alvo, não uma alegação de que todos os componentes já existem.
+camada OpenAPI, agente mono, adaptador Gemini com rate limit, trace JSONL, fila SQLite com lease,
+worker único, guarda de isolamento e guardrails pré-ação/pré-entrega. **Próximo marco local:** golden
+dataset e métricas; em paralelo continuam pendentes Gemini/API local e o sink do Langfuse. A
+estrutura completa descrita abaixo é a arquitetura-alvo, não uma alegação de que todos os
+componentes já existem.
 
 ---
 

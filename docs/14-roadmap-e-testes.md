@@ -31,7 +31,7 @@ runner, guardrail, golden dataset e métricas.
 O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatística — é construído
 **enquanto o experimento roda em segundo plano**. Essa é a única forma de caber.
 
-### 1.1 Estado verificado em 26/08/2026
+### 1.1 Estado verificado em 27/08/2026
 
 - **Concluído:** contratos e portas do núcleo, fakes, factories, regras do `import-linter`, parser
   OpenAPI, overlay, factory, executor HTTP, catálogo por `tier`, dry-run e papéis declarativos.
@@ -40,11 +40,12 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
 - **Pendências da Fase 0:** medição real de cota e Langfuse. O loop próprio foi adotado e o sink
   JSONL canônico, com composição best-effort, já está implementado; falta o sink secundário do
   Langfuse. Essas pendências impedem marcar o DoD integral da Fase 0 como concluído.
-- **Em andamento:** Fase 2 — implementação local concluída; faltam a validação com Gemini/API local
-  e a navegação do mesmo trace no Langfuse.
-- **Ainda inexistente:** runner/fila SQLite, guards, golden formalizado, métricas, arquitetura multi,
-  BFF, frontend e Compose. Comandos ponta a ponta permanecem explicitamente marcados como planejados
-  no README.
+- **Fase 2 local concluída:** faltam a validação com Gemini/API local e a navegação do mesmo trace no
+  Langfuse; nenhuma credencial ou serviço correspondente está disponível neste ambiente.
+- **Fase 3 local concluída:** fila SQLite, lease com dono e TTL, worker único, rate limiter conectado
+  ao Gemini, isolamento RNF02 e guards pré-ação/pré-entrega têm testes determinísticos.
+- **Ainda inexistente:** golden formalizado, métricas, arquitetura multi, BFF, frontend e Compose.
+  Comandos ponta a ponta permanecem explicitamente marcados como planejados no README.
 
 ---
 
@@ -193,6 +194,10 @@ Langfuse**.
 
 ### Fase 3 — Fila, runner e guardrail · **28/08** (1 dia)
 
+**Status em 27/08/2026:** implementação local concluída. O teste executa 20 tarefas, interrompe após
+7, reabre o SQLite e conclui as 13 restantes sem reprocessar; isolamento e guards também estão
+cobertos. A execução dos 20 casos contra Gemini/API real permanece bloqueada pelo ambiente externo.
+
 `queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py` ·
 **`pre_action_guard.py` (RF13–RF15)** · **`pre_delivery_guard.py` (RF44)**
 
@@ -229,10 +234,10 @@ Investigador não possui tool de `tier: impact`**.
 Checklist objetivo. Se algum item falhar, **corte pela lista da §9** — não empurre o prazo.
 
 - [ ] Um caso executa de ponta a ponta nos braços A e B
-- [ ] Fila retoma após interrupção
-- [ ] Guarda de isolamento bloqueia (RNF02)
-- [ ] `PreActionGuard` bloqueia ação sem RF13–RF15 antes da API
-- [ ] `PreDeliveryGuard` (RF44) bloqueia resolução com evidência forjada
+- [x] Fila retoma após interrupção
+- [x] Guarda de isolamento bloqueia (RNF02)
+- [x] `PreActionGuard` bloqueia ação sem RF13–RF15 antes da API
+- [x] `PreDeliveryGuard` (RF44) bloqueia resolução com evidência forjada
 - [ ] Métricas calculam sobre traces reais
 - [ ] Golden dataset com `forbidden_claims` e `required_preconditions`
 - [ ] Cota real medida e vazão confirmada
@@ -492,9 +497,9 @@ Contexto para entender onde E-A6 se encaixa (ADR-13):
 | # | Camada | Quando age | Garantia | Status |
 | ---: | :--- | :--- | :--- | :--- |
 | 1 | **Composição por `tier`** (RF12) | na composição | determinística por papel | **implementada — Fase 1** |
-| 2 | **Instrução no prompt** | **durante** | probabilística | planejada — Fase 2 |
-| 3 | **`PreActionGuard`** (RF13–RF15) | antes da API | determinística | planejada — Fase 3 |
-| 4 | **`PreDeliveryGuard` V1·V2·V3** (RF44) | antes da resposta | determinística | planejada — Fase 3 |
+| 2 | **Instrução no prompt** | **durante** | probabilística | **implementada — Fase 2** |
+| 3 | **`PreActionGuard`** (RF13–RF15) | antes da API | determinística | **implementada — Fase 3** |
+| 4 | **`PreDeliveryGuard` V1·V2·V3** (RF44) | antes da resposta | determinística | **implementada — Fase 3** |
 | 5 | **Agente adversarial** (E-A6) | antes de **agir**, por confronto | probabilística e **independente** | extra, não iniciado |
 
 > **O juiz LLM não é camada de defesa.** Ele mede, não protege — roda fora do caminho de entrega, na

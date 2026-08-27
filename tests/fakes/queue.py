@@ -43,8 +43,10 @@ class InMemoryQueue:
         # recupera leases expirados — o TTL é o mecanismo de detecção de worker morto
         for t in self._tasks.values():
             if t.state == "leased" and (t.lease_expires or 0) < agora:
-                t.state = "pending"
                 t.attempts += 1
+                t.state = "failed" if t.attempts >= max_attempts else "pending"
+                t.error_class = "infra"
+                t.completed_at = agora if t.state == "failed" else None
                 t.leased_by = None
                 t.lease_expires = None
 
@@ -73,8 +75,17 @@ class InMemoryQueue:
             attempt=alvo.attempts + 1,
         )
 
-    def complete(self, task_id: str, execution_id: str, *, now: float | None = None) -> None:
+    def complete(
+        self,
+        task_id: str,
+        execution_id: str,
+        *,
+        worker: str | None = None,
+        now: float | None = None,
+    ) -> None:
         t = self._tasks[task_id]
+        if t.state != "leased" or (worker is not None and t.leased_by != worker):
+            raise RuntimeError(f"task não pertence ao worker: {task_id}")
         t.state = "done"
         t.execution_id = execution_id
         t.completed_at = now if now is not None else time.time()
@@ -87,10 +98,13 @@ class InMemoryQueue:
         error_class: ErrorClass,
         *,
         execution_id: str | None = None,
+        worker: str | None = None,
         now: float | None = None,
         max_attempts: int = 3,
     ) -> None:
         t = self._tasks[task_id]
+        if t.state != "leased" or (worker is not None and t.leased_by != worker):
+            raise RuntimeError(f"task não pertence ao worker: {task_id}")
         t.error_class = error_class
         t.leased_by = None
         t.lease_expires = None
@@ -101,10 +115,19 @@ class InMemoryQueue:
             return
         if error_class == "contract":
             t.state = "failed"
+            t.execution_id = execution_id
+            t.completed_at = now if now is not None else time.time()
+            return
+        if error_class == "behavior":
+            t.state = "done"
+            t.execution_id = execution_id
+            t.completed_at = now if now is not None else time.time()
             return
 
         t.attempts += 1
         t.state = "failed" if t.attempts >= max_attempts else "pending"
+        if t.state == "failed":
+            t.completed_at = now if now is not None else time.time()
 
     def heartbeat(self, task_id: str, worker: str, ttl: float, *, now: float | None = None) -> bool:
         t = self._tasks.get(task_id)
