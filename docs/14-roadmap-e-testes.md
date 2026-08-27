@@ -37,10 +37,11 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
   OpenAPI, overlay, factory, executor HTTP, catálogo por `tier`, dry-run e papéis declarativos.
 - **Fase 1 concluída:** as 18 tools são geradas do contrato real; cobertura do overlay, composição
   por autoridade, transporte e portabilidade do núcleo têm testes automatizados.
-- **Pendências da Fase 0:** medição real de cota e decisão/spike do loop; Langfuse e sinks ainda não
-  foram implementados. Essas pendências operacionais não tornam a camada de tools incompleta, mas
-  impedem marcar o DoD integral da Fase 0 como concluído.
-- **Próximo passo:** Fase 2 — loop ReAct mono, prompt base, adaptador Gemini e trace JSONL.
+- **Pendências da Fase 0:** medição real de cota e Langfuse. O loop próprio foi adotado e o sink
+  JSONL canônico, com composição best-effort, já está implementado; falta o sink secundário do
+  Langfuse. Essas pendências impedem marcar o DoD integral da Fase 0 como concluído.
+- **Em andamento:** Fase 2 — implementação local concluída; faltam a validação com Gemini/API local
+  e a navegação do mesmo trace no Langfuse.
 - **Ainda inexistente:** runner/fila SQLite, guards, golden formalizado, métricas, arquitetura multi,
   BFF, frontend e Compose. Comandos ponta a ponta permanecem explicitamente marcados como planejados
   no README.
@@ -172,6 +173,10 @@ domínio em `tools/core/` passa (RNF06) · teste de composição por `tier` pass
 ---
 
 ### Fase 2 — Agente mono · **27/08** (1 dia)
+
+**Status em 26/08/2026:** loop ReAct, prompt base, `submit_resolution`, arquitetura mono, adaptador
+Gemini e JSONL canônico implementados. Caso determinístico e persistência estão validados por teste.
+Permanecem pendentes os dois itens externos do DoD: Gemini contra a API local e trace no Langfuse.
 
 `react.py` · `tracer.py` · `submit_resolution` · **prompt base (`prompts/base.md`)** · adaptador
 Gemini

@@ -69,8 +69,8 @@ class FakeLLMClient:
         self.model = model
         self.provider = provider
         self.calls: list[tuple[list[Message], list[ToolDef]]] = []
-        #: Por padrão, roteiro esgotado devolve texto — o loop encerra por suficiência
-        #: em vez de estourar `IndexError` e mascarar o teste como falha de infra.
+        #: Por padrão, roteiro esgotado devolve texto. O loop deve classificá-lo como
+        #: erro de comportamento, sem mascarar o teste com um `IndexError` de infraestrutura.
         self.on_exhausted = on_exhausted or (lambda: say("(roteiro esgotado)"))
 
     async def chat(

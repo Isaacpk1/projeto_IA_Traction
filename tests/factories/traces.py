@@ -11,6 +11,7 @@ Duas camadas, de propósito:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from polyfactory.factories.pydantic_factory import ModelFactory
@@ -76,7 +77,7 @@ def evidence(tool: str, field: str, value: str, step_n: int = 0) -> EvidenceRef:
 
 
 def make_trace(
-    steps: list[TraceStep] | list[tuple[str, Any]] | None = None,
+    steps: Sequence[TraceStep | tuple[str, Any]] | None = None,
     *,
     resolution: Resolution | None = None,
     decision: Decision = "orientar",
@@ -92,7 +93,7 @@ def make_trace(
     numeradas automaticamente — a forma curta cobre a maioria dos testes de scorer.
     """
     normalizados: list[TraceStep] = []
-    for i, s in enumerate(steps or []):
+    for i, s in enumerate(steps or ()):
         if isinstance(s, TraceStep):
             normalizados.append(s)
         else:

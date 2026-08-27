@@ -50,8 +50,9 @@ class TraceStep(BaseModel):
     def mode(self) -> str | None:
         """Modo do envelope de consulta da API, quando presente.
 
-        A API embrulha respostas de GET em `{status, data, mode, notes}`. É daqui que
-        sai a intensidade de degradação — a variável independente contínua de H1.
+        A API embrulha respostas de GET em `{status, data, mode, notes}`. Este valor
+        alimenta apenas o diagnóstico observado da trajetória; a variável independente
+        de H1 é `ExecutionTrace.degradation_intensity`, calculada antes da execução.
         """
         if not self.result:
             return None

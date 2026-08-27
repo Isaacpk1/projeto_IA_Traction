@@ -21,8 +21,6 @@ from src.core.contracts.trace import ExecutionTrace, TraceStep
 from src.tools.core.http_executor import HttpExecutor
 from src.tools.provider import ApiToolProvider, build_registry
 
-pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
-
 API_URL = os.environ.get("TRACTIAN_API_URL", "http://127.0.0.1:8000")
 ASSET = "asset_S420"
 
@@ -35,7 +33,7 @@ def _api_no_ar() -> bool:
 
 
 pytestmark = [
-    pytestmark,
+    pytest.mark.filterwarnings("ignore::UserWarning"),
     pytest.mark.skipif(not _api_no_ar(), reason=f"API industrial fora do ar em {API_URL}"),
 ]
 
