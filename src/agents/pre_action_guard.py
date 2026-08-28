@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import hashlib
+import json
+from typing import Any
 
 from pydantic import ValidationError
 
-from src.core.contracts.resolution import ActionAttempt, EvidenceRef, PreActionCheck
+from src.core.contracts.resolution import (
+    ActionAttempt,
+    ActionConfirmation,
+    ConfirmationPolicy,
+    EvidenceRef,
+    PreActionCheck,
+)
 from src.core.contracts.tool import Tier, ToolDef, ToolResult
 from src.core.contracts.trace import ExecutionTrace
 from src.core.evidence import evidence_matches, resolve_field
 from src.core.ports.tools import ToolProvider
 
-__all__ = ["PreActionGuardProvider"]
+__all__ = ["PreActionGuardProvider", "confirmation_fingerprint"]
 
-ConfirmationPolicy = Literal["auto_confirm", "auto_refuse"]
 _APP_FIELDS = {"evidence_cited"}
+
+
+def confirmation_fingerprint(tool: str, arguments: dict) -> str:
+    """Identifica de forma estável a ação exata que o usuário confirmou."""
+    forwarded = {key: value for key, value in arguments.items() if key not in _APP_FIELDS}
+    payload = json.dumps(
+        {"tool": tool, "arguments": forwarded},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class PreActionGuardProvider:
@@ -26,11 +45,13 @@ class PreActionGuardProvider:
         inner: ToolProvider,
         trace: ExecutionTrace,
         *,
-        confirmation_policy: ConfirmationPolicy = "auto_confirm",
+        confirmation_policy: ConfirmationPolicy = "auto_refuse",
+        confirmation_grants: set[str] | frozenset[str] | None = None,
     ) -> None:
         self.inner = inner
         self.trace = trace
         self.confirmation_policy = confirmation_policy
+        self.confirmation_grants = frozenset(confirmation_grants or ())
 
     @staticmethod
     def _guarded(tool: ToolDef) -> ToolDef:
@@ -108,8 +129,31 @@ class PreActionGuardProvider:
         failed: list[PreActionCheck] = []
         if not tool.required_permission or tool.required_permission not in self._permissions():
             failed.append("permission")
-        if tool.requires_confirmation and self.confirmation_policy != "auto_confirm":
-            failed.append("confirmation")
+        digest = confirmation_fingerprint(name, arguments)
+        if tool.requires_confirmation:
+            confirmed = self.confirmation_policy == "auto_confirm" or (
+                self.confirmation_policy == "explicit" and digest in self.confirmation_grants
+            )
+            source = (
+                "policy"
+                if self.confirmation_policy == "auto_confirm"
+                else "user"
+                if confirmed
+                else "none"
+            )
+            self.trace.confirmations.append(
+                ActionConfirmation(
+                    tool=name,
+                    arguments_digest=digest,
+                    requested_at_step=len(self.trace.steps),
+                    policy=self.confirmation_policy,
+                    confirmed=confirmed,
+                    source=source,
+                    consequence=tool.description,
+                )
+            )
+            if not confirmed:
+                failed.append("confirmation")
         references = self._evidence(arguments.get("evidence_cited"))
         justification = arguments.get("justification")
         matching = [
@@ -143,5 +187,8 @@ class PreActionGuardProvider:
             )
 
         forwarded = {key: value for key, value in arguments.items() if key not in _APP_FIELDS}
-        attempt.external_call_emitted = True
-        return await self.inner.call(name, forwarded, call_id=call_id, user_id=user_id, seed=seed)
+        result = await self.inner.call(
+            name, forwarded, call_id=call_id, user_id=user_id, seed=seed
+        )
+        attempt.external_call_emitted = result.external_call_emitted
+        return result

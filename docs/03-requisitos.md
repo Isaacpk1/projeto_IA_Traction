@@ -329,6 +329,11 @@ apresentando ação pretendida, justificativa e consequência.
 vinculado à ação e registrado imediatamente antes no trace.
 **Origem:** US13, US15, US16
 
+**Implementação atual:** o modo seguro padrão é `auto_refuse`. Execuções automatizadas precisam
+declarar `auto_confirm`; confirmações humanas usam `explicit` com um grant SHA-256 vinculado à tool
+e aos argumentos exatos. Toda decisão de confirmação, inclusive recusa, entra em `confirmations`
+no trace canônico.
+
 ---
 
 ### RF15 — Compor justificativa fundamentada em evidência
@@ -643,6 +648,10 @@ do agente, em qualquer forma — prompt, tool, resource ou arquivo lido.
 esses caminhos. Zero ocorrências toleradas.
 **Verificação:** teste de isolamento em CI local; auditoria do trace.
 
+**Implementação atual:** além da projeção `CaseInput`, um audit hook fica ativo somente durante
+`Architecture.run` e bloqueia `open`, `pathlib.Path.open` e `os.open` sobre os caminhos de gabarito.
+O teste negativo tenta ler um arquivo proibido e exige `IsolationViolation` e aborto da task.
+
 > Este é o requisito mais crítico do projeto. Sua violação invalida todos os resultados.
 
 ---
@@ -810,6 +819,11 @@ concluída é reprocessada. Esgotamento de cota é classificado como `budget` e 
 contador de tentativas da task.
 **Verificação:** teste com cota artificialmente reduzida; conferência de que a retomada preserva o
 estado.
+
+**Implementação atual:** configurar limite diário exige um `daily_state_path` SQLite compartilhado.
+A reserva é transacional (`BEGIN IMMEDIATE`), portanto dois processos lógicos não ultrapassam o
+teto; `QuotaExhausted` é levantado antes da chamada e o worker pausa novos leases sem incrementar
+as tentativas da task.
 
 ---
 

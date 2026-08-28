@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.agents.pre_action_guard import PreActionGuardProvider
+from src.agents.pre_action_guard import PreActionGuardProvider, confirmation_fingerprint
 from src.agents.pre_delivery_guard import PreDeliveryGuard
 from src.core.contracts.resolution import EvidenceRef, Resolution
 from src.core.contracts.trace import ExecutionTrace, TraceStep
@@ -112,7 +112,7 @@ async def test_pre_action_exige_que_justificativa_use_o_valor_citado():
             )
         ]
     )
-    guard = PreActionGuardProvider(inner, trace)
+    guard = PreActionGuardProvider(inner, trace, confirmation_policy="auto_confirm")
 
     result = await guard.call(
         "updateAssetConfig",
@@ -122,6 +122,44 @@ async def test_pre_action_exige_que_justificativa_use_o_valor_citado():
 
     assert not result.ok and not inner.called("updateAssetConfig")
     assert trace.action_attempts[-1].failed_preconditions == ["evidence"]
+
+
+async def test_confirmacao_explicita_e_vinculada_aos_argumentos_exatos():
+    trace = _trace()
+    arguments = {
+        "assetId": "a1",
+        "justification": "baseline invalidated exige correção",
+        "evidence_cited": [_reference()],
+    }
+    grant = confirmation_fingerprint("updateAssetConfig", arguments)
+    inner = FakeToolProvider(
+        {"updateAssetConfig": {"accepted": True}},
+        defs=[
+            tool_def(
+                "updateAssetConfig",
+                tier="impact",
+                required_permission="action_high",
+                requires_confirmation=True,
+            )
+        ],
+    )
+    guard = PreActionGuardProvider(
+        inner,
+        trace,
+        confirmation_policy="explicit",
+        confirmation_grants={grant},
+    )
+
+    accepted = await guard.call("updateAssetConfig", arguments, call_id="c1")
+    changed = await guard.call(
+        "updateAssetConfig", {**arguments, "assetId": "outro"}, call_id="c2"
+    )
+
+    assert accepted.ok and accepted.external_call_emitted
+    assert not changed.ok and not changed.external_call_emitted
+    assert trace.confirmations[0].confirmed and trace.confirmations[0].source == "user"
+    assert not trace.confirmations[1].confirmed
+    assert trace.action_attempts[1].failed_preconditions == ["confirmation"]
 
 
 def test_pre_delivery_bloqueia_evidencia_forjada_norma_e_limiar_sem_baseline():

@@ -29,3 +29,15 @@ artifacts/runs/dev_*/
 # Frontend
 node_modules/
 frontend/dist/
+
+# Material de referência TRACTIAN. Versionamos somente os insumos necessários para
+# contrato e avaliação; API de exemplo, dados Parquet e ambientes locais ficam fora.
+inteli-tractian-project/*
+!inteli-tractian-project/agent-input/
+inteli-tractian-project/agent-input/*
+!inteli-tractian-project/agent-input/api-contract.openapi.yaml
+!inteli-tractian-project/agent-input/cases.json
+!inteli-tractian-project/eval/
+inteli-tractian-project/eval/*
+!inteli-tractian-project/eval/expected-paths.json
+!inteli-tractian-project/eval/test-scenarios.md

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.core.contracts.golden import CaseInput, GoldenCase
 from src.core.contracts.task import Task
 from src.core.contracts.trace import ExecutionTrace
 from src.core.errors import IsolationViolation
 from src.core.ports.architecture import RunContext
+from src.evaluation.runner.isolation_guard import IsolationGuard
 from src.evaluation.runner.queue_sqlite import SQLiteWorkQueue
 from src.evaluation.runner.worker import Worker
 from tests.fakes.queue import InMemoryQueue
@@ -86,6 +89,20 @@ async def test_falha_de_infra_retorna_a_fila_e_usa_novo_execution_id():
     assert task is not None and task.state == "done" and task.attempts == 1
 
 
+async def test_cota_esgotada_pausa_novos_leases_sem_consumir_tentativa():
+    queue = InMemoryQueue()
+    queue.enqueue([_task("quota"), _task("waiting")])
+    worker = Worker(queue, _case, lambda task: _Architecture(["budget"]))
+
+    trace = await worker.run_once("w")
+    next_trace = await worker.run_once("w")
+
+    assert trace is not None and trace.error_class == "budget"
+    assert next_trace is None
+    task = queue.get("quota")
+    assert task is not None and task.state == "pending" and task.attempts == 0
+
+
 async def test_isolation_guard_aborta_ao_receber_golden_case():
     queue = InMemoryQueue()
     queue.enqueue([_task("leak")])
@@ -108,6 +125,31 @@ async def test_isolation_guard_aborta_ao_receber_golden_case():
         raise AssertionError("IsolationViolation não foi levantada")
 
     task = queue.get("leak")
+    assert task is not None and task.state == "failed" and task.error_class == "contract"
+
+
+async def test_isolation_guard_bloqueia_leitura_de_arquivo_durante_turno(tmp_path):
+    secret = tmp_path / "expected-paths.json"
+    secret.write_text('{"answer": "segredo"}', encoding="utf-8")
+    queue = InMemoryQueue()
+    queue.enqueue([_task("filesystem-leak")])
+
+    class _LeakingArchitecture(_Architecture):
+        async def run(self, case: CaseInput, ctx: RunContext) -> ExecutionTrace:
+            secret.read_text(encoding="utf-8")
+            return await super().run(case, ctx)
+
+    worker = Worker(
+        queue,
+        _case,
+        lambda task: _LeakingArchitecture(),
+        isolation_guard=IsolationGuard([secret]),
+    )
+
+    with pytest.raises(IsolationViolation, match="acesso do agente"):
+        await worker.run_once("w")
+
+    task = queue.get("filesystem-leak")
     assert task is not None and task.state == "failed" and task.error_class == "contract"
 
 

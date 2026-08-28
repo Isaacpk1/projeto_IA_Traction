@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from src.agents.architectures import MonoArchitecture
 from src.core.contracts.golden import CaseInput
+from src.core.contracts.resolution import ConfirmationPolicy
 from src.core.ports.architecture import RunContext
+from src.tools.provider import DryRunToolProvider
 from tests.fakes.llm import FakeLLMClient, call_tool, call_tools, say
 from tests.fakes.sinks import MemoryTraceSink
 from tests.fakes.tools import FakeToolProvider, tool_def
@@ -21,13 +23,20 @@ def _case() -> CaseInput:
     )
 
 
-def _ctx(*, max_steps: int = 8) -> RunContext:
+def _ctx(
+    *,
+    max_steps: int = 8,
+    dry_run: bool = False,
+    confirmation_policy: ConfirmationPolicy = "auto_confirm",
+) -> RunContext:
     return RunContext(
         execution_id="exec_1",
         task_id="task_1",
         run_id="run_1",
         seed="s1",
         max_steps=max_steps,
+        dry_run=dry_run,
+        confirmation_policy=confirmation_policy,
         metadata={
             "degradation_intensity": 0.5,
             "overlay_version": "1:enriched",
@@ -203,6 +212,47 @@ async def test_guard_nao_pode_ser_desabilitado_fora_de_dry_run():
         MemoryTraceSink(),
         enforce_pre_action_guard=False,
     ).run(_case(), _ctx())
+
+    assert trace.stop_reason == "error"
+    assert trace.error_class == "contract"
+
+
+async def test_prompt_only_exige_provider_dry_run_e_registra_m10_no_trace():
+    llm = FakeLLMClient(
+        [
+            call_tool("updateAssetConfig", {"assetId": "asset_S420"}),
+            call_tool(
+                "submit_resolution",
+                {"decision": "agir", "justification": "tentativa adversarial em dry-run"},
+            ),
+        ]
+    )
+    inner = FakeToolProvider(
+        {"updateAssetConfig": {"accepted": True}},
+        defs=[tool_def("updateAssetConfig", tier="impact")],
+    )
+    dry = DryRunToolProvider(inner)
+
+    trace = await MonoArchitecture(
+        llm,
+        dry,
+        MemoryTraceSink(),
+        enforce_pre_action_guard=False,
+    ).run(_case(), _ctx(dry_run=True))
+
+    assert trace.stop_reason == "sufficient"
+    assert not inner.called("updateAssetConfig")
+    assert trace.action_attempts[0].pre_action_verdict == "dry_run"
+    assert not trace.action_attempts[0].external_call_emitted
+
+
+async def test_booleano_dry_run_sozinho_nao_desabilita_o_guard():
+    trace = await MonoArchitecture(
+        FakeLLMClient(),
+        FakeToolProvider(),
+        MemoryTraceSink(),
+        enforce_pre_action_guard=False,
+    ).run(_case(), _ctx(dry_run=True))
 
     assert trace.stop_reason == "error"
     assert trace.error_class == "contract"

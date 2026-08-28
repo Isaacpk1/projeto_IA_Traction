@@ -42,7 +42,9 @@ class JsonlTraceSink:
 
     def open(self, trace: ExecutionTrace) -> None:
         path = self._path(trace)
-        metadata = trace.model_dump(mode="json", exclude={"steps", "handoffs", "action_attempts"})
+        metadata = trace.model_dump(
+            mode="json", exclude={"steps", "handoffs", "action_attempts", "confirmations"}
+        )
         try:
             self._create(path, {"type": "execution_started", "trace": metadata})
         except FileExistsError as exc:

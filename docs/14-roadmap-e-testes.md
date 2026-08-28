@@ -198,6 +198,11 @@ Langfuse**.
 7, reabre o SQLite e conclui as 13 restantes sem reprocessar; isolamento e guards também estão
 cobertos. A execução dos 20 casos contra Gemini/API real permanece bloqueada pelo ambiente externo.
 
+**Reforço em 28/08/2026:** o isolamento passou a bloquear também acesso de filesystem durante o
+turno; confirmação explícita ficou vinculada ao conteúdo da ação; o braço `prompt_only` exige um
+provider dry-run verificável e registra M10 no trace; a cota diária passou a ser durável e atômica.
+Há testes negativos para cada uma dessas garantias.
+
 `queue_sqlite.py` · `worker.py` · `rate_limiter.py` · `isolation_guard.py` ·
 **`pre_action_guard.py` (RF13–RF15)** · **`pre_delivery_guard.py` (RF44)**
 

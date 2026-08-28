@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 Decision = Literal["orientar", "agir", "escalar"]
 GuardCheck = Literal["V1", "V2", "V3"]
 PreActionCheck = Literal["permission", "confirmation", "evidence"]
+ConfirmationPolicy = Literal["auto_confirm", "auto_refuse", "explicit"]
+ConfirmationSource = Literal["policy", "user", "none"]
 
 __all__ = [
     "Decision",
@@ -24,6 +26,8 @@ __all__ = [
     "Resolution",
     "Delivered",
     "ActionAttempt",
+    "ActionConfirmation",
+    "ConfirmationPolicy",
 ]
 
 
@@ -89,3 +93,15 @@ class ActionAttempt(BaseModel):
     pre_action_verdict: Literal["pass", "blocked", "dry_run"]
     failed_preconditions: list[PreActionCheck] = Field(default_factory=list)
     external_call_emitted: bool = False
+
+
+class ActionConfirmation(BaseModel):
+    """Registro auditável de confirmação, vinculado ao conteúdo exato da ação (RF14)."""
+
+    tool: str
+    arguments_digest: str = Field(description="SHA-256 da tool e argumentos encaminhados")
+    requested_at_step: int = Field(ge=0)
+    policy: ConfirmationPolicy
+    confirmed: bool
+    source: ConfirmationSource
+    consequence: str = ""

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import cast
 
 from src.core.contracts.golden import CaseInput
+from src.core.contracts.resolution import ConfirmationPolicy
 from src.core.contracts.task import Task
 from src.core.contracts.trace import ExecutionTrace
 from src.core.errors import ErrorClass, IsolationViolation, classify
@@ -31,7 +32,8 @@ class Worker:
         metadata_for: Callable[[Task], dict] | None = None,
         isolation_guard: IsolationGuard | None = None,
         dry_run: bool = False,
-        confirmation_policy: str = "auto_confirm",
+        confirmation_policy: ConfirmationPolicy = "auto_refuse",
+        confirmation_grants_for: Callable[[Task], set[str] | frozenset[str]] | None = None,
     ) -> None:
         self.queue = queue
         self.load_case = load_case
@@ -40,6 +42,7 @@ class Worker:
         self.isolation_guard = isolation_guard or IsolationGuard()
         self.dry_run = dry_run
         self.confirmation_policy = confirmation_policy
+        self.confirmation_grants_for = confirmation_grants_for or (lambda task: frozenset())
         self._leased_last_call = False
 
     async def run_once(
@@ -78,9 +81,11 @@ class Worker:
                 repetition=task.repetition,
                 dry_run=self.dry_run,
                 confirmation_policy=self.confirmation_policy,
+                confirmation_grants=self.confirmation_grants_for(task),
                 metadata=self.metadata_for(task),
             )
-            trace = await architecture.run(case, context)
+            with self.isolation_guard.protect_filesystem():
+                trace = await architecture.run(case, context)
             if trace.error_class is None:
                 self.queue.complete(task.task_id, execution_id, worker=worker_id, now=now)
             else:

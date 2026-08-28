@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 
+from src.core.errors import QuotaExhausted
 from src.evaluation.runner.rate_limiter import LocalRateLimiter
 
 
@@ -47,3 +48,51 @@ async def test_rejeita_provedor_desconhecido_e_custo_invalido():
         await limiter.acquire("unknown")
     with pytest.raises(ValueError):
         await limiter.consume_daily("gemini", 0)
+
+
+async def test_cota_diaria_bloqueia_antes_de_ultrapassar_e_reinicia_no_dia_seguinte(tmp_path):
+    current = [date(2026, 8, 27)]
+    limiter = LocalRateLimiter(
+        {"gemini": 15},
+        daily_limit_by_provider={"gemini": 2},
+        daily_state_path=tmp_path / "quota.db",
+        today=lambda: current[0],
+    )
+
+    assert await limiter.consume_daily("gemini", 2) == 2
+    with pytest.raises(QuotaExhausted):
+        await limiter.consume_daily("gemini")
+
+    current[0] = date(2026, 8, 28)
+    assert await limiter.consume_daily("gemini") == 1
+    limiter.close()
+
+
+async def test_cota_diaria_e_compartilhada_entre_processos_logicos(tmp_path):
+    path = tmp_path / "quota.db"
+    first = LocalRateLimiter(
+        {"gemini": 15},
+        daily_limit_by_provider={"gemini": 2},
+        daily_state_path=path,
+    )
+    second = LocalRateLimiter(
+        {"gemini": 15},
+        daily_limit_by_provider={"gemini": 2},
+        daily_state_path=path,
+    )
+
+    assert await first.consume_daily("gemini") == 1
+    assert await second.consume_daily("gemini") == 2
+    with pytest.raises(QuotaExhausted):
+        await first.consume_daily("gemini")
+    first.close()
+    second.close()
+
+
+def test_rejeita_limite_diario_invalido_ou_sem_provedor():
+    with pytest.raises(ValueError):
+        LocalRateLimiter({"gemini": 15}, daily_limit_by_provider={"judge": 10})
+    with pytest.raises(ValueError):
+        LocalRateLimiter({"gemini": 15}, daily_limit_by_provider={"gemini": 0})
+    with pytest.raises(ValueError, match="daily_state_path"):
+        LocalRateLimiter({"gemini": 15}, daily_limit_by_provider={"gemini": 10})

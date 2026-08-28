@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from src.core.contracts.golden import CaseInput
+from src.core.contracts.resolution import ConfirmationPolicy
 from src.core.contracts.trace import Architecture as ArchName
 from src.core.contracts.trace import ExecutionTrace
 
@@ -39,7 +40,8 @@ class RunContext:
         experiment_id: str | None = None,
         max_steps: int = 8,
         dry_run: bool = False,
-        confirmation_policy: str = "auto_confirm",
+        confirmation_policy: ConfirmationPolicy = "auto_refuse",
+        confirmation_grants: set[str] | frozenset[str] | None = None,
         metadata: dict | None = None,
     ) -> None:
         self.execution_id = execution_id
@@ -52,6 +54,7 @@ class RunContext:
         self.max_steps = max_steps
         self.dry_run = dry_run
         self.confirmation_policy = confirmation_policy
+        self.confirmation_grants = frozenset(confirmation_grants or ())
         self.metadata = metadata or {}
 
 

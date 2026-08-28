@@ -5,15 +5,16 @@ from __future__ import annotations
 from importlib.resources import files
 from typing import cast
 
-from src.agents.pre_action_guard import ConfirmationPolicy, PreActionGuardProvider
+from src.agents.pre_action_guard import PreActionGuardProvider
 from src.agents.pre_delivery_guard import PreDeliveryGuard
 from src.agents.react import react_loop
 from src.agents.roles import MONO
 from src.agents.submit_resolution import SUBMIT_RESOLUTION_TOOL
 from src.agents.tracer import TraceRecorder
 from src.core.contracts.golden import CaseInput
+from src.core.contracts.resolution import ConfirmationPolicy
 from src.core.contracts.trace import ExecutionTrace
-from src.core.errors import ContractError, classify
+from src.core.errors import ContractError, IsolationViolation, classify
 from src.core.ports.architecture import RunContext
 from src.core.ports.llm import LLMClient
 from src.core.ports.tools import ToolProvider
@@ -74,15 +75,23 @@ class MonoArchitecture:
         try:
             provider: ToolProvider = self.tools
             if self.enforce_pre_action_guard:
-                if ctx.confirmation_policy not in {"auto_confirm", "auto_refuse"}:
+                if ctx.confirmation_policy not in {"auto_confirm", "auto_refuse", "explicit"}:
                     raise ContractError(f"confirmation_policy inválida: {ctx.confirmation_policy}")
                 provider = PreActionGuardProvider(
                     self.tools,
                     trace,
                     confirmation_policy=cast(ConfirmationPolicy, ctx.confirmation_policy),
+                    confirmation_grants=ctx.confirmation_grants,
                 )
-            elif not ctx.dry_run:
-                raise ContractError("desabilitar PreActionGuard exige dry_run=True")
+            elif ctx.dry_run and getattr(self.tools, "is_dry_run", False):
+                bind_trace = getattr(self.tools, "bind_trace", None)
+                if not callable(bind_trace):
+                    raise ContractError("provider dry-run não permite vincular o trace canônico")
+                bind_trace(trace)
+            else:
+                raise ContractError(
+                    "desabilitar PreActionGuard exige dry_run=True e provider dry-run"
+                )
 
             outcome = await react_loop(
                 case=case,
@@ -104,5 +113,7 @@ class MonoArchitecture:
                 resolution=outcome.resolution,
                 error_class=outcome.error_class,
             )
+        except IsolationViolation:
+            raise
         except Exception as exc:
             return tracer.finish(reason="error", error_class=classify(exc))

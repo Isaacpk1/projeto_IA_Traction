@@ -117,6 +117,15 @@ async def test_chamada_bem_sucedida_preserva_o_envelope(registry: TierRegistry, 
     assert r.mode == "partial", "o modo do envelope alimenta a intensidade de degradação"
     assert r.data is not None and r.data["data"]["state"] == "invalidated"
     assert r.latency_ms >= 0
+    assert r.external_call_emitted
+
+
+async def test_argumento_invalido_nao_finge_que_emitiu_http(registry: TierRegistry, executor):
+    r = await executor.execute(_tool(registry, "getAsset"), {}, call_id="c1")
+
+    assert not r.ok
+    assert r.error_class == "contract"
+    assert not r.external_call_emitted
 
 
 @respx.mock

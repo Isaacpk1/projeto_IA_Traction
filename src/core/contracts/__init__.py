@@ -22,6 +22,8 @@ from src.core.contracts.metrics import (
 )
 from src.core.contracts.resolution import (
     ActionAttempt,
+    ActionConfirmation,
+    ConfirmationPolicy,
     Decision,
     Delivered,
     EvidenceRef,
@@ -41,8 +43,10 @@ __all__ = [
     "GOLDEN_ONLY_FIELDS",
     "TRACE_SCHEMA_VERSION",
     "ActionAttempt",
+    "ActionConfirmation",
     "ActionReport",
     "CaseInput",
+    "ConfirmationPolicy",
     "ContextReport",
     "Decision",
     "Delivered",

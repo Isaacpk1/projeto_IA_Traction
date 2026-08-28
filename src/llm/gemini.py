@@ -90,8 +90,8 @@ class GeminiClient:
         ):
             with attempt:
                 if self.rate_limiter is not None:
-                    await self.rate_limiter.acquire(self.provider)
                     await self.rate_limiter.consume_daily(self.provider)
+                    await self.rate_limiter.acquire(self.provider)
                 response = await self._client.aio.models.generate_content(
                     model=self.model,
                     contents=contents,

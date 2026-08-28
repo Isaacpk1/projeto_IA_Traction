@@ -124,6 +124,7 @@ class HttpExecutor:
                 error=str(exc),
                 error_class="contract",
                 latency_ms=(time.perf_counter() - inicio) * 1000,
+                external_call_emitted=False,
             )
 
         headers = {"x-user-id": user_id} if user_id else {}
@@ -137,6 +138,7 @@ class HttpExecutor:
                 error=f"{type(exc).__name__}: {exc}",
                 error_class=classify(exc),
                 latency_ms=(time.perf_counter() - inicio) * 1000,
+                external_call_emitted=True,
             )
 
         latencia = (time.perf_counter() - inicio) * 1000
@@ -153,6 +155,7 @@ class HttpExecutor:
                 error_class="infra" if resposta.status_code in (429, 502, 503, 504) else "behavior",
                 status_code=resposta.status_code,
                 latency_ms=latencia,
+                external_call_emitted=True,
             )
 
         return ToolResult(
@@ -161,6 +164,7 @@ class HttpExecutor:
             data=dados,
             status_code=resposta.status_code,
             latency_ms=latencia,
+            external_call_emitted=True,
         )
 
     async def _send(

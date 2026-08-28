@@ -196,10 +196,10 @@ uv run mypy src
 uv run lint-imports
 ```
 
-Os testes da camada de tools usam o contrato fornecido pela TRACTIAN. Por padrão, ele é procurado
-em `../api_traction/inteli-tractian-project/agent-input/api-contract.openapi.yaml`; outro caminho
-pode ser informado por `TRACTIAN_CONTRACT_PATH`. Os cinco testes contra a API real são ignorados
-quando `TRACTIAN_API_URL` não está disponível.
+Os testes da camada de tools usam o contrato mínimo fornecido pela TRACTIAN e versionado em
+`inteli-tractian-project/agent-input/api-contract.openapi.yaml`; outro caminho pode ser informado
+por `TRACTIAN_CONTRACT_PATH`. Os cinco testes contra a API real são ignorados quando
+`TRACTIAN_API_URL` não está disponível.
 
 ### Execução ponta a ponta planejada
 

@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.core.contracts.resolution import ActionAttempt, Delivered, Resolution
+from src.core.contracts.resolution import ActionAttempt, ActionConfirmation, Delivered, Resolution
 
 TRACE_SCHEMA_VERSION = "1.0.0"
 
@@ -106,6 +106,7 @@ class ExecutionTrace(BaseModel):
     steps: list[TraceStep] = Field(default_factory=list)
     handoffs: list[Handoff] = Field(default_factory=list)
     action_attempts: list[ActionAttempt] = Field(default_factory=list)
+    confirmations: list[ActionConfirmation] = Field(default_factory=list)
     resolution: Resolution | None = None
     delivered: Delivered | None = None
     stop_reason: StopReason = "sufficient"

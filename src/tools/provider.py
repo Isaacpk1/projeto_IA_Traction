@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.core.contracts.resolution import ActionAttempt
 from src.core.contracts.tool import Tier, ToolDef, ToolResult
+from src.core.contracts.trace import ExecutionTrace
+from src.core.ports.tools import ToolProvider
 from src.tools.core.http_executor import HttpExecutor
 from src.tools.core.openapi_parser import parse_contract
 from src.tools.core.tier_registry import TierRegistry
@@ -110,6 +113,7 @@ class ApiToolProvider:
                 name=name,
                 error=f"tool desconhecida: {name}",
                 error_class="contract",
+                external_call_emitted=False,
             )
         return await self.executor.execute(
             tool,
@@ -132,10 +136,17 @@ class DryRunToolProvider:
     que o braço investiga.
     """
 
-    def __init__(self, inner: ApiToolProvider) -> None:
+    is_dry_run = True
+
+    def __init__(self, inner: ToolProvider, *, trace: ExecutionTrace | None = None) -> None:
         self.inner = inner
+        self.trace = trace
         #: Toda tentativa suprimida, para conferência com `trace.action_attempts`.
         self.suppressed: list[tuple[str, dict]] = []
+
+    def bind_trace(self, trace: ExecutionTrace) -> None:
+        """Vincula o trace depois que a arquitetura cria o execution_id."""
+        self.trace = trace
 
     def catalog(
         self, tiers: set[Tier] | None = None, only: set[str] | None = None
@@ -157,6 +168,16 @@ class DryRunToolProvider:
         tool = self.inner.get(name)
         if tool is not None and tool.tier == "impact":
             self.suppressed.append((name, dict(arguments)))
+            if self.trace is not None:
+                self.trace.action_attempts.append(
+                    ActionAttempt(
+                        tool=name,
+                        args=dict(arguments),
+                        requested_at_step=len(self.trace.steps),
+                        pre_action_verdict="dry_run",
+                        external_call_emitted=False,
+                    )
+                )
             return ToolResult(
                 call_id=call_id,
                 name=name,
@@ -166,5 +187,6 @@ class DryRunToolProvider:
                     "notes": "dry-run: nenhuma chamada externa emitida",
                     "data": {"accepted": True, "action_id": "dry_run", "dry_run": True},
                 },
+                external_call_emitted=False,
             )
         return await self.inner.call(name, arguments, call_id=call_id, user_id=user_id, seed=seed)

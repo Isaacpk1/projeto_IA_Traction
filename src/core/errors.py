@@ -137,6 +137,9 @@ def classify(exc: BaseException) -> ErrorClass:
         return exc.error_class
     if isinstance(exc, TimeoutError | ConnectionError | OSError):
         return "infra"
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status == 429 or isinstance(status, int) and status >= 500:
+        return "infra"
     # httpx e SDKs de provedor não são importáveis aqui (core/ não importa nada):
     # a identificação é pelo nome do tipo.
     name = type(exc).__name__

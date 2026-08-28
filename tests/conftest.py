@@ -7,11 +7,10 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-#: Material fornecido pela TRACTIAN, no repositório vizinho.
-MATERIAL = RAIZ.parent / "api_traction" / "inteli-tractian-project" / "agent-input"
+#: Material mínimo fornecido pela TRACTIAN e versionado junto ao projeto.
+MATERIAL = RAIZ / "inteli-tractian-project" / "agent-input"
 
-#: O contrato fornecido vive no repositório da API industrial, ao lado deste. O caminho
-#: é sobrescrevível para que o CI e outra máquina não dependam do layout local.
+#: O caminho continua sobrescrevível para integrações que montem o contrato externamente.
 CONTRACT_PATH = Path(
     os.environ.get(
         "TRACTIAN_CONTRACT_PATH",

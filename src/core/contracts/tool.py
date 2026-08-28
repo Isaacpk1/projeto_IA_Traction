@@ -86,6 +86,10 @@ class ToolResult(BaseModel):
     error_class: str | None = None
     status_code: int | None = None
     latency_ms: float = 0.0
+    external_call_emitted: bool = Field(
+        default=False,
+        description="True somente depois que o transporte externo recebeu a tentativa",
+    )
 
     @property
     def mode(self) -> str | None:

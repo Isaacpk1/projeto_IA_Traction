@@ -98,6 +98,7 @@ class FakeToolProvider:
                 error=self.errors[name],
                 error_class="infra",
                 latency_ms=latency,
+                external_call_emitted=True,
             )
         if name not in self._defs:
             return ToolResult(
@@ -106,6 +107,7 @@ class FakeToolProvider:
                 error=f"tool desconhecida: {name}",
                 error_class="contract",
                 latency_ms=latency,
+                external_call_emitted=False,
             )
 
         if name in self.sequences and self.sequences[name]:
@@ -114,7 +116,13 @@ class FakeToolProvider:
             raw = self.returns.get(name, {})
 
         data = raw if isinstance(raw, dict) and "mode" in raw else envelope(raw)
-        return ToolResult(call_id=call_id, name=name, data=data, latency_ms=latency)
+        return ToolResult(
+            call_id=call_id,
+            name=name,
+            data=data,
+            latency_ms=latency,
+            external_call_emitted=True,
+        )
 
     # --- asserções de conveniência -------------------------------------------
 
