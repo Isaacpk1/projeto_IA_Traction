@@ -132,3 +132,11 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
+
+# O projeto declara suporte a 3.11, então o check roda nessa versão. Os stubs do
+# numpy usam `type` (3.12+) e falhariam na análise — pular a travessia deles
+# preserva a verificação do código do projeto sem baixar o alvo de compatibilidade.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "pandas.*", "scipy.*", "statsmodels.*", "sklearn.*", "patsy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
