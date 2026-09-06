@@ -1,0 +1,342 @@
+<title>Isolamento de Contexto sob Evidência Degradada</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#F1F4F4; --surface:#FFFFFF; --sunken:#E7ECEB;
+  --ink:#0F191C; --ink-2:#3D4B4E; --ink-3:#6C7A7C; --rule:#D3DBDA;
+  --accent:#0A6E6E; --accent-soft:#DCEAE8;
+  --arm-a:#3F6C9E; --arm-b:#C2603A;
+  --ok:#2E7D57; --no:#B3402F; --unk:#7A7168;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0C1315; --surface:#131E20; --sunken:#0A1113;
+  --ink:#E4EDEB; --ink-2:#A9B8B7; --ink-3:#78888A; --rule:#25373A;
+  --accent:#4FB0A8; --accent-soft:#152B2C;
+  --arm-a:#7FA6D4; --arm-b:#E09266;
+  --ok:#5CB98A; --no:#E1705C; --unk:#A99C8C;
+}}
+:root[data-theme="dark"]{
+  --ground:#0C1315; --surface:#131E20; --sunken:#0A1113;
+  --ink:#E4EDEB; --ink-2:#A9B8B7; --ink-3:#78888A; --rule:#25373A;
+  --accent:#4FB0A8; --accent-soft:#152B2C;
+  --arm-a:#7FA6D4; --arm-b:#E09266;
+  --ok:#5CB98A; --no:#E1705C; --unk:#A99C8C;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);margin:0;
+  font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.deck{max-width:1040px;margin:0 auto;padding:0 28px 80px}
+.slide{min-height:88vh;display:flex;flex-direction:column;justify-content:center;
+  padding:56px 0;border-bottom:1px solid var(--rule);scroll-margin-top:0}
+.slide:last-child{border-bottom:none}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:14px}
+h1{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:clamp(38px,6.5vw,74px);
+  font-weight:700;letter-spacing:-.02em;line-height:1.03;margin:0;text-wrap:balance}
+h2{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:clamp(28px,4.4vw,46px);
+  font-weight:700;line-height:1.1;margin:0 0 20px;text-wrap:balance;letter-spacing:-.015em}
+h3{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:21px;font-weight:600;margin:0 0 10px}
+p{font-size:clamp(16px,1.9vw,19px);line-height:1.6;color:var(--ink-2);max-width:64ch;margin:0 0 16px}
+p.big{font-size:clamp(19px,2.4vw,25px);color:var(--ink);line-height:1.45}
+p.sub{font-size:15px;color:var(--ink-3)}
+strong,b{color:var(--ink);font-weight:600}
+code,.mono{font-family:"IBM Plex Mono",monospace;font-size:.9em}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);margin-top:26px}
+.cell{background:var(--surface);padding:22px}
+.cell .k{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.cell .v{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:clamp(30px,4vw,44px);
+  font-weight:700;line-height:1.05;margin:8px 0 4px;font-variant-numeric:tabular-nums}
+.cell .n{font-size:13.5px;color:var(--ink-3);line-height:1.45}
+table{border-collapse:collapse;width:100%;margin-top:22px;font-size:15px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--rule)}
+th{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600}
+td.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-flex;align-items:center;gap:7px;font-family:"IBM Plex Mono",monospace;
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;
+  padding:4px 11px;border:1px solid currentColor;border-radius:2px;white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ok{color:var(--ok)} .no{color:var(--no)} .unk{color:var(--unk)}
+.quote{border-left:3px solid var(--accent);padding:4px 0 4px 20px;margin:24px 0;
+  font-size:clamp(17px,2.2vw,22px);line-height:1.45;color:var(--ink);max-width:60ch}
+.quote cite{display:block;font-size:13px;color:var(--ink-3);font-style:normal;margin-top:10px;
+  font-family:"IBM Plex Mono",monospace}
+ul{margin:16px 0 0;padding-left:22px;max-width:64ch}
+li{font-size:clamp(15px,1.8vw,18px);line-height:1.6;color:var(--ink-2);margin-bottom:12px}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.bar{position:fixed;left:0;right:0;bottom:0;height:3px;background:var(--rule);z-index:20}
+.bar>i{display:block;height:100%;background:var(--accent);width:0;transition:width .15s}
+.hud{position:fixed;right:16px;bottom:14px;font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;color:var(--ink-3);background:var(--surface);border:1px solid var(--rule);
+  padding:5px 10px;border-radius:2px;z-index:21}
+.arm-a{color:var(--arm-a);font-weight:600} .arm-b{color:var(--arm-b);font-weight:600}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+@media print{.slide{min-height:auto;page-break-after:always;border:none}.bar,.hud{display:none}}
+</style>
+<div class="deck" id="deck">
+
+<section class="slide">
+  <div class="eyebrow">Inteli × TRACTIAN · Engenharia de agentes · 08/09/2026</div>
+  <h1>Isolamento de contexto sob evidência degradada</h1>
+  <p class="big" style="margin-top:26px">Um agente com 18 ferramentas contra um orquestrador com
+  três especialistas, nos mesmos chamados de manutenção preditiva.</p>
+  <p class="tag" style="margin-top:20px">186 execuções com LLM real · 4 hipóteses pré-registradas ·
+  16 métricas determinísticas · 29 limitações declaradas</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">O problema</div>
+  <h2>O erro caro não é errar o diagnóstico.<br>É confirmá-lo sem checar.</h2>
+  <p>Um analista recebe: <span class="mono">imbalance, confidence 0.87</span>. Parece conclusivo.</p>
+  <p>Mas o <b>baseline do ativo foi invalidado</b> por uma intervenção de manutenção — e o limiar de
+  alarme deriva do baseline. O diagnóstico está apoiado numa referência que não vale mais.</p>
+  <p class="big">Quem confirma, age errado numa máquina crítica. Quem verifica a pré-condição,
+  escala.</p>
+  <p class="sub">É esse o modo de falha que o experimento mede — não “o agente sabe vibração?”,
+  mas “o agente verifica antes de concluir?”.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">A hipótese central</div>
+  <h2>H1 — o que especialização compra, e o que ela custa</h2>
+  <div class="quote">Isolamento de contexto por especialização reduz o erro de investigação em
+  casos degradados, <b>mas introduz perda de informação na fronteira de handoff</b>. O saldo é
+  positivo quando o handoff é estruturado.
+  <cite>doc 07 · declarado antes de qualquer execução</cite></div>
+  <p>A hipótese prevê <b>as duas coisas</b>: um ganho e um custo. É isso que a torna falseável de
+  forma interessante — e é exatamente aí que o resultado ficou.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">O que foi construído</div>
+  <h2>Não um agente. Um arnês de avaliação.</h2>
+  <div class="cols">
+    <div class="cell"><div class="k">Camada de tools</div><div class="v">18</div>
+      <div class="n">geradas do contrato OpenAPI real, com overlay semântico e catálogo por autoridade</div></div>
+    <div class="cell"><div class="k">Métricas determinísticas</div><div class="v">M1–M16</div>
+      <div class="n">funções puras sobre o trace persistido; nenhuma depende de juiz LLM</div></div>
+    <div class="cell"><div class="k">Suíte</div><div class="v">213</div>
+      <div class="n">testes, mais 5 contratos de camada verificados pelo import-linter</div></div>
+  </div>
+  <p style="margin-top:26px"><b>O trace é o contrato.</b> A camada de análise não importa SDK de
+  LLM nem exige chave de API — quem tem os artefatos reproduz os resultados sem a máquina que os
+  produziu. Isso não é elegância: é o que permitiu recomputar todas as métricas depois de corrigir
+  um scorer, sem gastar uma chamada.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Desenho</div>
+  <h2>Ablação, não comparação</h2>
+  <table>
+    <thead><tr><th>Experimento</th><th>Compara</th><th>Constante</th><th class="num">Execuções</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">E1 · H1</td><td><span class="arm-a">mono</span> vs <span class="arm-b">multi</span></td>
+        <td>modelo, prompt-base, tools, casos, seeds</td><td class="num">136</td></tr>
+      <tr><td class="mono">E2 · H2</td><td><span class="mono">prompt_only</span> vs <span class="mono">pre_action_guard</span></td>
+        <td>arquitetura, modelo, prompt, casos</td><td class="num">50</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:24px">Uma variável por vez, tudo o mais fixo. Em E1: 17 chamados × 2
+  arquiteturas × 4 seeds × 1 repetição, <b>68 execuções por braço</b>, 17 por seed em cada.</p>
+  <p class="sub">Os seeds não são repetições — são <b>níveis de degradação</b>, com intensidade
+  medida antes da execução sobre um conjunto fixo de recursos. É o que transforma “existe
+  diferença?” em “a diferença acompanha a causa proposta?”.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Resultado · H2</div>
+  <h2>Pedir no prompt não impede a ação insegura</h2>
+  <div class="cols">
+    <div class="cell"><div class="k">Tentativa insegura · prompt_only</div>
+      <div class="v" style="color:var(--no)">60%</div>
+      <div class="n">6 de 10 oportunidades · IC95 de Wilson [0,313 · 0,832], não cruza o zero</div></div>
+    <div class="cell"><div class="k">Bloqueadas pelo guard</div>
+      <div class="v" style="color:var(--ok)">9/9</div>
+      <div class="n">e <span class="mono">external_call_emitted = false</span> nas 15 tentativas dos dois braços</div></div>
+  </div>
+  <p style="margin-top:26px"><span class="pill ok"><i></i>P2.2 sustentada</span></p>
+  <p class="big" style="margin-top:20px">Os dois braços tentam agir em taxa parecida. A trava não
+  torna o agente mais prudente — <b>torna a imprudência inconsequente.</b></p>
+  <p class="sub">Ressalva: M10 mede conformidade de processo, não perigo. Das 6 tentativas, 3 eram
+  escalar para um humano. A taxa não se lê como “60% de condutas perigosas”.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Resultado · H1</div>
+  <h2>Mono e multi não se distinguem</h2>
+  <table>
+    <thead><tr><th>Teste</th><th class="num">Estimativa</th><th class="num">IC95</th><th class="num">p</th></tr></thead>
+    <tbody>
+      <tr><td>Interação <span class="mono">intensidade × braço</span> — pré-registrado</td>
+        <td class="num">2,161</td><td class="num">[−0,67 · 4,99]</td><td class="num">0,134</td></tr>
+      <tr><td>Efeito principal do braço multi</td>
+        <td class="num">−0,947</td><td class="num">[−2,12 · 0,22]</td><td class="num">0,113</td></tr>
+      <tr><td>Diferença pareada por caso (17 casos)</td>
+        <td class="num">−0,049</td><td class="num">[−0,21 · 0,10]</td><td class="num">—</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:24px"><span class="pill unk"><i></i>P1.1 inconclusiva</span></p>
+  <p style="margin-top:20px">Os três intervalos cruzam o zero. Conforme declarado <b>antes</b> de
+  rodar, isso é reportado como inconclusivo — <b>não como evidência de ausência de efeito</b>.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">O resultado interessante</div>
+  <h2>A multi investiga melhor.<br>E decide igual ou pior.</h2>
+  <table>
+    <thead><tr><th>Métrica</th><th class="num">Mono</th><th class="num">Multi</th><th>Quem ganha</th></tr></thead>
+    <tbody>
+      <tr><td>M5a · pré-condição verificada</td><td class="num">0,350</td><td class="num">0,625</td><td class="arm-b">multi</td></tr>
+      <tr><td>M1 · precisão de trajetória</td><td class="num">0,376</td><td class="num">0,507</td><td class="arm-b">multi</td></tr>
+      <tr><td>M9 · lacuna declarada</td><td class="num">0,406</td><td class="num">0,565</td><td class="arm-b">multi</td></tr>
+      <tr><td><b>M4 · acerto de decisão</b></td><td class="num">0,412</td><td class="num">0,348</td><td class="arm-a">mono</td></tr>
+      <tr><td>M16 · escalonamento apropriado</td><td class="num">0,956</td><td class="num">0,767</td><td class="arm-a">mono</td></tr>
+      <tr><td>M8 · alucinação de evidência <span class="tag">(menor é melhor)</span></td>
+        <td class="num">0,051</td><td class="num">0,224</td><td class="arm-a">mono</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:22px">Quase o dobro de pré-condições verificadas. E o triplo de alucinação
+  na hora de concluir.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">A explicação</div>
+  <h2>O ganho não sobrevive ao handoff</h2>
+  <div class="cols" style="grid-template-columns:1fr">
+    <div class="cell" style="text-align:center;padding:40px 22px">
+      <div class="k">M14 · perda de evidência entre investigação e resolução</div>
+      <div class="v" style="font-size:clamp(52px,9vw,88px);color:var(--arm-b)">41%</div>
+      <div class="n">na arquitetura multi. A mono não tem essa etapa para perder.</div></div>
+  </div>
+  <p style="margin-top:26px">Era a <b>P1.4</b>, escrita antes de qualquer execução:
+  <i>“a arquitetura multi apresenta maior perda de evidência entre a investigação e a resolução
+  final”</i>.</p>
+  <p class="big">A especialização entregou o ganho de investigação que a hipótese previu. O que
+  ela não conseguiu foi <b>converter esse ganho em decisão</b>.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">As predições, todas</div>
+  <h2>Inclusive as que contrariaram a expectativa</h2>
+  <table>
+    <thead><tr><th>Predição</th><th>Previa</th><th>Resultado</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">P1.1</td><td>vantagem cresce com a degradação</td>
+        <td><span class="pill unk"><i></i>inconclusiva</span></td></tr>
+      <tr><td class="mono">P1.2</td><td>multi verifica mais pré-condições</td>
+        <td><span class="pill ok"><i></i>direção sustentada</span></td></tr>
+      <tr><td class="mono">P1.3</td><td>multi alucina <b>menos</b></td>
+        <td><span class="pill no"><i></i>refutada na direção oposta</span></td></tr>
+      <tr><td class="mono">P1.4</td><td>multi perde evidência no handoff</td>
+        <td><span class="pill ok"><i></i>sustentada</span></td></tr>
+      <tr><td class="mono">P2.2</td><td>instrução falha sob pressão</td>
+        <td><span class="pill ok"><i></i>sustentada</span></td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:24px"><b>Uma predição refutada é resultado. Uma predição omitida é viés.</b>
+  P1.3 previu o contrário do observado, e está reportada com o mesmo destaque das outras.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Custo</div>
+  <h2>77% mais chamadas para decidir igual ou pior</h2>
+  <div class="cols">
+    <div class="cell"><div class="k">Chamadas de LLM por execução</div>
+      <div class="v"><span class="arm-a">4,3</span> → <span class="arm-b">7,6</span></div>
+      <div class="n">a multi custa 77% mais para entregar decisão equivalente ou pior</div></div>
+    <div class="cell"><div class="k">Erros de contrato</div>
+      <div class="v"><span class="arm-a">0</span> · <span class="arm-b">6</span></div>
+      <div class="n">tool call malformada do Gemini, <b>todos no braço multi</b> — cadeias mais longas, mais chances de quebrar o schema</div></div>
+  </div>
+  <p style="margin-top:26px">O risco <span class="mono">RS-02</span> do documento de stack —
+  “tool calling instável em cadeias longas” — estava previsto e se materializou. Penaliza a multi
+  por instabilidade do modelo, não por arquitetura. Está declarado como limitação, não escondido no
+  resultado.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">O que o arnês encontrou</div>
+  <h2>Três defeitos que nenhum teste unitário pegaria</h2>
+  <table>
+    <thead><tr><th>Defeito</th><th>Como aparecia</th><th>Alcance</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">getModel</span> inalcançável</td>
+        <td>o agente passava a <i>versão</i> do modelo como <i>id</i>; não havia caminho na API para descobrir o id</td>
+        <td><b>4 dos 17 casos</b> com trajetória impossível de completar</td></tr>
+      <tr><td>Falha de tool call mal classificada</td>
+        <td><span class="mono">MALFORMED_FUNCTION_CALL</span> entrava como falha de infraestrutura</td>
+        <td>a task voltava à fila e o risco ficava <b>invisível na métrica criada para vê-lo</b></td></tr>
+      <tr><td>Evidência reprovada por camada</td>
+        <td>o trace guarda o envelope; o agente vê esse valor embrulhado. <span class="mono">data.data.state</span> estava certo e era recusado</td>
+        <td><b>94% das resoluções bloqueadas</b> — o produto escalava tudo</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:22px">Nenhum foi encontrado por teste. Todos por <b>ler um trace e perguntar
+  por que uma métrica estava zerada</b>.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Honestidade metodológica</div>
+  <h2>29 limitações declaradas</h2>
+  <ul>
+    <li><b>15 antes de rodar</b> — dados sintéticos, poder estatístico de 17 casos, confundidor de
+    computação entre arquiteturas, catálogo de tools diferente entre braços.</li>
+    <li><b>14 descobertas na execução</b> — inclusive as que expõem erro de condução: seeds
+    escolhidos sem executar o pré-requisito de validação, cota gasta em calibrações descartadas, e
+    o desenho reduzido de 544 para 136 execuções.</li>
+    <li><b>O juiz LLM não foi executado</b>, e nenhuma métrica de rubrica é reportada. Métrica de
+    rubrica sem meta-avaliação tem erro desconhecido — em vez de reportá-la com ressalva, não se
+    reporta.</li>
+    <li><b>No braço multi, o índice do passo é inalcançável</b> pelo agente: cada papel conta
+    localmente, o trace numera globalmente. Isso penaliza a multi por um motivo que não é
+    arquitetura.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Conclusão</div>
+  <h2>O que eu diria a quem vai pôr isto em produção</h2>
+  <p class="big"><b>Não adote multi-agente esperando decisão melhor.</b> Nesta configuração, ela
+  custou 77% mais chamadas para entregar decisão estatisticamente indistinguível — e alucinou mais
+  ao concluir.</p>
+  <p class="big"><b>Adote se o que você precisa é investigação auditável.</b> A multi verificou
+  quase o dobro de pré-condições e declarou mais lacunas. O gargalo está na fronteira do handoff,
+  que é um problema de engenharia, não de arquitetura.</p>
+  <p class="big"><b>Não confie em instrução de prompt para segurança.</b> Isso o experimento
+  mostrou com intervalo que não cruza o zero. A trava determinística no gateway é o que impede o
+  efeito.</p>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Fechamento</div>
+  <h2>O resultado é inconclusivo.<br>O método não é.</h2>
+  <p class="big">Refutar H1 com método sólido era, desde o início, desfecho tão válido quanto
+  confirmá-la. Estava escrito no plano antes de existir um dado.</p>
+  <p>O que este trabalho entrega não é a resposta “multi é melhor”. É um arnês capaz de <b>medir a
+  diferença, encontrar os defeitos que a distorcem, e dizer quando não sabe</b>.</p>
+  <p class="tag" style="margin-top:26px">186 execuções · 213 testes · 29 limitações declaradas ·
+  todo trace reproduzível sem chave de API</p>
+</section>
+
+</div>
+<div class="bar"><i id="prog"></i></div>
+<div class="hud" id="hud">1 / 15 · ↑↓ navega</div>
+<script>
+const slides=[...document.querySelectorAll(".slide")],hud=document.getElementById("hud"),prog=document.getElementById("prog");
+let i=0;
+const ir=n=>{i=Math.max(0,Math.min(slides.length-1,n));slides[i].scrollIntoView({behavior:"smooth",block:"start"});sync()};
+const sync=()=>{hud.textContent=`${i+1} / ${slides.length} · ↑↓ navega`;prog.style.width=((i+1)/slides.length*100)+"%"};
+addEventListener("keydown",e=>{
+  if(["ArrowDown","PageDown"," ","ArrowRight"].includes(e.key)){e.preventDefault();ir(i+1)}
+  else if(["ArrowUp","PageUp","ArrowLeft"].includes(e.key)){e.preventDefault();ir(i-1)}
+  else if(e.key==="Home"){e.preventDefault();ir(0)}
+  else if(e.key==="End"){e.preventDefault();ir(slides.length-1)}});
+const obs=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){i=slides.indexOf(x.target);sync()}}),{threshold:.5});
+slides.forEach(s=>obs.observe(s));
+sync();
+</script>
