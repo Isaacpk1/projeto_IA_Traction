@@ -128,6 +128,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# O modulo e majoritariamente template de CSS, JS e HTML embutido. Quebrar essas
+# strings no limite de coluna do Python pioraria a legibilidade do que elas geram.
+"src/interfaces/dashboard.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 plugins = ["pydantic.mypy"]

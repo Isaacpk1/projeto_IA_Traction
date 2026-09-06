@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -64,6 +65,7 @@ DEFAULT_METRICS = RAIZ / "artifacts" / "metrics.db"
 DEFAULT_TRACES = RAIZ / "artifacts" / "traces"
 DEFAULT_QUOTA = RAIZ / "artifacts" / "quota.db"
 DEFAULT_INTENSITY = RAIZ / "src" / "evaluation" / "golden" / "degradation_intensity.json"
+DEFAULT_DASHBOARD = RAIZ / "artifacts" / "dashboard.html"
 
 #: Único modelo de diagnóstico da API; não há endpoint que os liste.
 MODELO_DE_VIBRACAO = "mdl_vib_v3"
@@ -269,6 +271,63 @@ def status(
     for estado, quantidade in sorted(counts.items()):
         typer.echo(f"{estado:>8}  {quantidade:>5}")
     typer.echo(f"{'total':>8}  {total:>5}")
+
+
+# ---------------------------------------------------------------------------
+# dashboard
+# ---------------------------------------------------------------------------
+@app.command()
+def dashboard(
+    run_id: Annotated[str, typer.Option(help="Rodada de E1 a reportar.")],
+    out: Annotated[Path, typer.Option(help="HTML de saída.")] = DEFAULT_DASHBOARD,
+    traces: Annotated[Path, typer.Option(help="Raiz dos traces.")] = DEFAULT_TRACES,
+    metrics: Annotated[Path, typer.Option(help="SQLite das métricas de E1.")] = DEFAULT_METRICS,
+    e2_run_id: Annotated[str | None, typer.Option(help="Rodada de E2, para H2.")] = None,
+    e2_metrics: Annotated[Path | None, typer.Option(help="SQLite das métricas de E2.")] = None,
+    seeds: Annotated[
+        str | None, typer.Option(help="Restringe a estes seeds, separados por vírgula.")
+    ] = None,
+    repetition: Annotated[
+        int | None, typer.Option(help="Restringe a esta repetição.")
+    ] = None,
+    alvo: Annotated[
+        int | None, typer.Option(help="Total previsto; marca a rodada como parcial.")
+    ] = None,
+) -> None:
+    """Gera o relatório visual do experimento a partir dos artefatos persistidos.
+
+    Não fala com LLM nem com a API: lê os traces e o SQLite. É por isso que roda
+    com o experimento em andamento e reproduz em qualquer máquina que tenha os
+    artefatos.
+    """
+    from src.analysis import load_frame
+    from src.analysis.report import montar_relatorio
+    from src.evaluation.degradation import carregar_intensidade
+    from src.interfaces.dashboard import escrever_dashboard, render_dashboard
+
+    intensidade_tabela = (
+        carregar_intensidade(DEFAULT_INTENSITY) if DEFAULT_INTENSITY.exists() else None
+    )
+    df = load_frame(traces, metrics, run_id=run_id, intensity=intensidade_tabela)
+    if seeds:
+        escolhidos = [s.strip() for s in seeds.split(",") if s.strip()]
+        df = df[df["seed"].isin(escolhidos)]
+    if repetition is not None:
+        df = df[df["repetition"] == repetition]
+
+    e2_df = None
+    if e2_run_id and e2_metrics:
+        e2_df = load_frame(traces, e2_metrics, run_id=e2_run_id)
+
+    relatorio = montar_relatorio(df, run_id=run_id, e2_df=e2_df)
+    html = render_dashboard(
+        relatorio,
+        commit=_code_commit(),
+        gerado=time.strftime("%d/%m/%Y %H:%M"),
+        alvo=alvo,
+    )
+    destino = escrever_dashboard(out, html)
+    typer.echo(f"{relatorio['execucoes']} execuções · relatório em {destino}")
 
 
 # ---------------------------------------------------------------------------
