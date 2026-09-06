@@ -14,7 +14,7 @@ avaliação** que mede sua confiabilidade.
 > **Status em 06/09/2026.** O experimento está em execução com LLM real contra a API industrial.
 > **E2 concluído** — 50 execuções, veredito escrito para H2 em [§6.3](#63-e2--segurança-h2).
 > **E1 em andamento** — 544 execuções, H1 sem veredito até o fim da rodada.
-> **E3 e E4 não executados**, com registro explícito em [§6.5](#65-e3-e-e4--registro-de-não-execução).
+> **E3 e E4 não executados**, com registro explícito em [§6.6](#66-e3-e-e4--registro-de-não-execução).
 > O juiz LLM não foi executado e nenhuma métrica de rubrica é reportada (L19).
 > Cronograma, estratégia de testes e plano de contingência em
 > [`docs/14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md).
@@ -263,7 +263,26 @@ seguinte.
 > **Não rode dois runners ao mesmo tempo.** O espaçamento por minuto é local ao processo — dois a
 > `--rpm 10` produzem 20 e provocam 429. A cota diária, essa sim, é compartilhada e durável.
 
-#### Passo 5 — analisar
+#### Passo 5 — reprocessar métricas sem reexecutar (RF34)
+
+```bash
+uv run agentes rescore --run-id e1_v1 --metrics artifacts/runs/e1_v1/metrics.db
+```
+
+Recomputa M1–M16 sobre os traces gravados. **Não gasta cota**: corrigir um scorer não deveria
+custar uma rodada nova. É o retorno concreto de "o trace é o contrato" — ver §6.5.
+
+#### Passo 6 — relatório visual
+
+```bash
+uv run agentes dashboard --run-id e1_v1 --metrics artifacts/runs/e1_v1/metrics.db \
+  --e2-run-id e2_v1 --e2-metrics artifacts/runs/e2_v1/metrics.db --out artifacts/dashboard.html
+```
+
+HTML autocontido: métricas por braço, curva dose-resposta, vereditos e o **explorador de
+trajetórias** — o que cada agente chamou, concluiu e citou como evidência, execução a execução.
+
+#### Passo 7 — analisar em código
 
 ```python
 from src.analysis import load_frame, avaliar_h1_dose_resposta, avaliar_h2_tentativa_insegura
@@ -283,7 +302,7 @@ resultados sem a máquina que os produziu.
 ### Estado-alvo — ainda não implementado
 
 Compose com Langfuse, backend BFF, frontend React (console, chat multi-turno, dashboard de
-hipóteses), ingestão de chamados por API e o juiz LLM com meta-avaliação. Ver §6.5 e L19 para o
+hipóteses), ingestão de chamados por API e o juiz LLM com meta-avaliação. Ver §6.6 e L19 para o
 que a ausência do juiz implica nos resultados, e [`14`](docs/14-roadmap-e-testes.md) §9 para a
 ordem de cortes que levou a esse recorte.
 
@@ -489,7 +508,57 @@ errado"**. Ver L20.
 O desfecho é reportado por si porque pode ser manifestação do próprio mecanismo de H1 — deriva
 de atenção em trajetórias longas — e não apenas ruído de medição.
 
-### 6.5 E3 e E4 — registro de não-execução
+### 6.5 Um defeito de sistema encontrado lendo os traces
+
+O achado de engenharia mais consequente do projeto não veio de uma métrica: veio de perguntar
+por que **M5b estava zerado nos dois braços**.
+
+**O que era.** O trace grava `ToolResult.data` — o envelope `{mode, notes, data}`. O loop ReAct
+mostra ao agente esse valor **embrulhado** em `{data, error, error_class, status_code}`. Quando o
+agente citava `data.data.state`, estava correto em relação ao que viu, e o verificador reprovava
+por diferença de camada, não por evidência ausente.
+
+**O alcance.** Das 295 referências de evidência citadas até então, **5 resolviam — 1,7%**. E o
+`PreDeliveryGuard` usa o mesmo comparador na checagem V1:
+
+| Consequência | Antes da correção |
+| :--- | :--- |
+| Resoluções bloqueadas pelo guardrail | **112 de 119 — 94%**, todas em V1 |
+| `orientar` convertido à força em `escalar` | 42 |
+| `agir` convertido à força em `escalar` | 8 |
+| M6, M5b | zerados |
+| M8 — alucinação de evidência | 0,000, e isso era **falso conforto**: nada resolvia, logo nada podia divergir |
+
+O comportamento entregue do produto era **"escalar tudo"**, por incompatibilidade de forma entre
+duas camadas — não por decisão de segurança.
+
+**A correção.** `evidence_matches` passou a resolver contra as duas formas da mesma observação, e
+`resolve_field` aceita `a[0].b` além de `a.0.b` — o prompt nunca fixou a sintaxe, e recusar
+colchetes mediria a notação escolhida pelo modelo. Cada relaxamento foi medido em separado antes
+de ser adotado:
+
+| Relaxamento | Referências que passam a resolver | Adotado |
+| :--- | ---: | :---: |
+| Só normalizar colchetes | 1,7 % | — |
+| **+ resolver na forma que o agente viu** | **24,8 %** | ✅ |
+| + tolerar um `data.` a mais ou a menos | 49,5 % | ❌ |
+
+O terceiro dobraria o número, mas ali o agente **errou a profundidade do caminho** — e é isso que
+M6 deve medir. Passo e tool também continuam exigidos: afrouxá-los mudaria a métrica em vez de
+corrigi-la.
+
+**Reprocessamento sem custo.** `agentes rescore` implementa o RF34: recomputa M1–M16 sobre os
+traces persistidos, sem reexecutar o agente e sem consumir cota. É o que torna corrigir um scorer
+uma operação barata — e é o retorno concreto do princípio "o trace é o contrato".
+
+**Onde ficou.** Com o matcher corrigido, 27,4 % das referências resolvem e o guardrail recomputado
+aprova 30 em vez de 14. Os 72,6 % restantes são o agente citando caminho errado — agora um
+resultado mensurável, e não um artefato de medição. A seção 6.4 do relatório visual mostra isso
+execução a execução.
+
+---
+
+### 6.6 E3 e E4 — registro de não-execução
 
 | Experimento | Hipótese | Estado | Motivo |
 | :--- | :--- | :--- | :--- |
@@ -499,7 +568,7 @@ de atenção em trajetórias longas — e não apenas ruído de medição.
 Nenhum veredito é emitido para H3 e H4. **Não-execução não é resultado inconclusivo**: são
 categorias distintas e estão registradas como tal.
 
-### 6.6 Decisões analíticas declaradas
+### 6.7 Decisões analíticas declaradas
 
 Escolhas de julgamento, e não de dado, registradas **antes** de observar o resultado que elas
 afetam:
@@ -550,6 +619,9 @@ condução do próprio experimento.
 | **L21** | **A rotulação humana cega não ocorreu**, e a pré-condição já está comprometida: agregados de M4 por braço foram observados durante a calibração de 06/09. Mesmo com tempo, a meta-avaliação não seria válida como desenhada |
 | **L22** | **O overlay não descreve parâmetros.** Ele enriquece a descrição da ferramenta, não a de seus argumentos. Isso tornou `getModel` inalcançável até 06/09 — o agente passava `model_version` como `modelId` e recebia 404 em todas as tentativas, afetando os 4 casos base que exigem essa ferramenta. Corrigido no texto da descrição; a lacuna estrutural permanece |
 | **L23** | **Resultados de calibração foram descartados, não incorporados.** As rodadas com prompt `1.0.0` e com seeds `s1..s7` expuseram os defeitos acima e não entram na análise. São distinguíveis pelo `prompt_version` no trace, mas representam cota consumida sem resultado |
+| **L24** | **A citação de evidência tem contrato subespecificado.** O prompt exige `tool`, `field`, `value` e `step`, mas nunca fixa a sintaxe do caminho nem a partir de qual raiz ele é contado. Mesmo após a correção, 72,6 % das referências não resolvem — parte é o agente errando, parte é ambiguidade do contrato, e os dois não estão separados |
+| **L25** | **No braço multi, o índice do passo é inalcançável.** Cada papel conta passos no seu próprio loop, enquanto o trace numera globalmente entre papéis. O agente não tem como acertar `step`, e M6 penaliza o braço B por um motivo que não é arquitetura |
+| **L26** | **As métricas de evidência mudaram de valor após o reprocessamento.** M6, M5b e M8 medidos antes de 06/09 não são comparáveis com os de depois. A correção está versionada e os traces preservados, mas nenhuma análise reporta as duas séries lado a lado |
 
 ---
 
