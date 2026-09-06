@@ -12,6 +12,7 @@ from src.core.contracts.handoff import (
     ActionReport,
     ContextReport,
     InvestigationReport,
+    RoutingDecision,
 )
 from src.core.contracts.llm import LLMResponse, Message, Usage
 from src.core.contracts.metrics import (
@@ -60,6 +61,7 @@ __all__ = [
     "HumanLabel",
     "HypothesisVerdict",
     "InvestigationReport",
+    "RoutingDecision",
     "Judgment",
     "LLMResponse",
     "Lease",

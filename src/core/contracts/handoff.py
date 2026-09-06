@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.core.contracts.resolution import EvidenceRef, Finding
 
@@ -21,10 +21,31 @@ __all__ = [
     "BaselineState",
     "DetectionMode",
     "Confidence",
+    "RoutingDecision",
     "ContextReport",
     "InvestigationReport",
     "ActionReport",
 ]
+
+Specialist = Literal["contextualizer", "investigator", "executor"]
+
+
+class RoutingDecision(BaseModel):
+    """Orquestrador → grafo: classificação e especialistas necessários."""
+
+    modality: Literal["context", "investigation", "action"]
+    specialists: list[Specialist] = Field(min_length=1)
+    rationale: str = Field(min_length=10)
+
+    @model_validator(mode="after")
+    def validate_route(self) -> RoutingDecision:
+        if len(self.specialists) != len(set(self.specialists)):
+            raise ValueError("a rota não pode repetir especialistas")
+        if "executor" in self.specialists and "investigator" not in self.specialists:
+            raise ValueError("o Executor exige investigação prévia")
+        if self.modality == "action" and "executor" not in self.specialists:
+            raise ValueError("modalidade action exige o Executor")
+        return self
 
 
 class ContextReport(BaseModel):

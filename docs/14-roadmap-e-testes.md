@@ -47,6 +47,38 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
 - **Ainda inexistente:** golden formalizado, métricas, arquitetura multi, BFF, frontend e Compose.
   Comandos ponta a ponta permanecem explicitamente marcados como planejados no README.
 
+### 1.2 Estado verificado em 01/09/2026
+
+- **Fase 4 — núcleo local implementado:** os 17 casos base foram formalizados com fingerprint,
+  `forbidden_claims` e `required_preconditions`; os scorers M1–M16 e o repositório SQLite
+  versionado estão cobertos por testes.
+- **Pipeline de scoring integrado:** depois de persistir o trace e concluir a task, o worker chama
+  um hook composto em `interfaces/`; falha de scoring não invalida nem reexecuta o agente. Falhas
+  de comportamento também são pontuadas, enquanto falhas de infraestrutura, contrato e cota não
+  contaminam as métricas.
+- **Caminho real validado:** um teste usa a API industrial local, executa o monoagente com LLM
+  determinístico, persiste o JSONL e grava as métricas no SQLite.
+- **Qualidade local:** `pytest`, Ruff, mypy e os cinco contratos do `import-linter` estão verdes.
+- **Dataset adversarial concluído:** A1–A5 estão formalizados em `adversarial_cases.json`, ligados
+  a usuários, ativos e ações reais da API e protegidos pelo isolamento do gabarito.
+- **Pendência externa da Fase 4:** calcular as métricas sobre execuções com Gemini, não apenas sobre
+  o caminho determinístico contra a API real; não há credencial Gemini disponível neste ambiente.
+
+### 1.3 Estado verificado em 02/09/2026
+
+- **Fase 5 — DoD local concluído:** o Orquestrador classifica o caso por contrato Pydantic e o
+  LangGraph executa somente os especialistas selecionados, com handoffs tipados registrados.
+- **RF12 aplicado em duas fronteiras:** o catálogo oferecido ao Investigador não contém tools de
+  impacto e o provider escopado também rejeita uma chamada fora da capacidade do papel.
+- **Ações continuam protegidas:** somente o Executor recebe tools de impacto, atrás do
+  `PreActionGuard`; o Orquestrador não acessa a API e consolida apenas os relatórios recebidos.
+- **Caminho real validado:** o braço B executou um caso contra a API industrial local e persistiu o
+  trace com handoffs. Ferramentas internas de relatório não entram nas métricas de trajetória M1–M3.
+- **Roteamento discriminado:** uma rota investigativa pula Contextualizador e Executor; uma rota de
+  ação exige Investigador antes do Executor por validação estrutural do contrato.
+- **Qualidade local:** 151 testes, Ruff, mypy e os cinco contratos do `import-linter` estão verdes.
+- **Pendência da fase:** piloto de vazão com LLM real, bloqueado pela ausência de credencial Gemini.
+
 ---
 
 ## 2. As duas trilhas
@@ -244,7 +276,7 @@ Checklist objetivo. Se algum item falhar, **corte pela lista da §9** — não e
 - [x] `PreActionGuard` bloqueia ação sem RF13–RF15 antes da API
 - [x] `PreDeliveryGuard` (RF44) bloqueia resolução com evidência forjada
 - [ ] Métricas calculam sobre traces reais
-- [ ] Golden dataset com `forbidden_claims` e `required_preconditions`
+- [x] Golden dataset base com `forbidden_claims` e `required_preconditions`
 - [ ] Cota real medida e vazão confirmada
 - [ ] Rotulação humana cega de **40 casos** feita (10 calibração + 30 validação, sem sobreposição)
 

@@ -7,7 +7,7 @@ import time
 from src.core.contracts.llm import Usage
 from src.core.contracts.resolution import Resolution
 from src.core.contracts.tool import ToolCall, ToolResult
-from src.core.contracts.trace import ExecutionTrace, StopReason, TraceStep
+from src.core.contracts.trace import ExecutionTrace, Handoff, StopReason, TraceStep
 from src.core.ports.trace_sink import TraceSink
 
 __all__ = ["TraceRecorder"]
@@ -76,6 +76,10 @@ class TraceRecorder:
         if model_version:
             self.trace.model_versions_by_agent[agent] = model_version
         self.trace.provider_by_agent.setdefault(agent, provider)
+
+    def record_handoff(self, handoff: Handoff) -> None:
+        self.trace.handoffs.append(handoff)
+        self.sink.record_handoff(self.trace.execution_id, handoff.model_copy(deep=True))
 
     def finish(
         self,

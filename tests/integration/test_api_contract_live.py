@@ -17,9 +17,19 @@ from pathlib import Path
 import httpx
 import pytest
 
+from src.agents.architectures import MonoArchitecture, MultiArchitecture
+from src.analysis import MetricSQLiteRepository
+from src.core.contracts.task import Task
 from src.core.contracts.trace import ExecutionTrace, TraceStep
+from src.core.ports.architecture import RunContext
+from src.evaluation.golden import load_golden_dataset
+from src.evaluation.runner.worker import Worker
+from src.interfaces import ScoreCompletedExecution
+from src.storage.jsonl_traces import JsonlTraceSink
 from src.tools.core.http_executor import HttpExecutor
 from src.tools.provider import ApiToolProvider, build_registry
+from tests.fakes.llm import FakeLLMClient, call_tool
+from tests.fakes.queue import InMemoryQueue
 
 API_URL = os.environ.get("TRACTIAN_API_URL", "http://127.0.0.1:8000")
 ASSET = "asset_S420"
@@ -101,14 +111,215 @@ async def test_intensidade_de_degradacao_sai_do_trace(provider):
     assert intensidade is not None and 0.0 <= intensidade <= 1.0
 
 
-async def test_acao_sem_justificativa_e_recusada_pela_api(provider):
-    """L13: a API valida a justificativa apenas por comprimento (≥20 chars).
-
-    Fixar o comportamento aqui é o que sustenta a limitação declarada — e deixa
-    explícito que a rede real contra justificativa vazia é nossa, não da API.
-    """
+async def test_provider_bloqueia_justificativa_curta_antes_do_http(provider):
+    """O schema da tool bloqueia a chamada inválida antes de qualquer efeito externo."""
     r = await provider.call(
         "escalateCase", {"caseId": "case_tkt_inv_06", "justification": "curta"}, call_id="c"
     )
+
     assert not r.ok
-    assert r.status_code in (400, 422)
+    assert r.error_class == "contract"
+    assert r.status_code is None
+    assert not r.external_call_emitted
+
+
+async def test_api_recusa_justificativa_curta():
+    """L13: a API também valida a justificativa por comprimento (≥20 chars)."""
+    async with httpx.AsyncClient(base_url=API_URL) as client:
+        response = await client.post(
+            "/cases/case_tkt_inv_06/escalate",
+            headers={"x-user-id": "usr_pedro"},
+            json={"justification": "curta"},
+        )
+
+    assert response.status_code in (400, 422)
+
+
+async def test_execucao_mono_real_persiste_trace_e_metricas(provider, tmp_path):
+    """Caminho Fase 4: API real → trace JSONL → scoring → SQLite."""
+    dataset = load_golden_dataset()
+    golden = dataset.by_id()["case_tkt_inv_06"]
+    provider.default_user_id = golden.user_id
+    provider.default_seed = "complete"
+
+    llm = FakeLLMClient(
+        [
+            call_tool("getBaseline", {"assetId": golden.asset_id}),
+            call_tool(
+                "submit_resolution",
+                {
+                    "decision": "orientar",
+                    "justification": "O baseline foi invalidado apó uma intervenção de manutenção.",
+                    "evidence_cited": [
+                        {
+                            "tool": "getBaseline",
+                            "field": "data.state",
+                            "value": "invalidated",
+                            "step": 0,
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    sink = JsonlTraceSink(tmp_path / "traces")
+    architecture = MonoArchitecture(llm, provider, sink)
+    task = Task(
+        task_id="task_live_scoring",
+        kind="experiment",
+        case_id=golden.case_id,
+        architecture="mono",
+        run_id="run_live_scoring",
+        seed="complete",
+    )
+    queue = InMemoryQueue()
+    queue.enqueue([task])
+
+    with MetricSQLiteRepository(tmp_path / "metrics.db") as repository:
+        hook = ScoreCompletedExecution(lambda leased: golden, repository)
+        worker = Worker(
+            queue,
+            lambda leased: golden.to_input(),
+            lambda leased: architecture,
+            on_completed=hook,
+        )
+
+        trace = await worker.run_once("worker-live")
+
+        assert trace is not None
+        saved_metrics = repository.for_execution(trace.execution_id)
+        metrics = {metric.metric_id: metric for metric in saved_metrics}
+
+    persisted = sink.read_final(trace.execution_id)
+    assert queue.get(task.task_id).state == "done"
+    assert persisted.execution_id == trace.execution_id
+    assert persisted.tools_called() == ["getBaseline", "submit_resolution"]
+    assert metrics["M4"].value == 1.0
+    assert metrics["M5a"].value == 1.0
+    assert metrics["M5b"].value == 1.0
+
+
+async def test_braco_b_executa_caso_contra_api_real(provider, tmp_path):
+    """DoD Fase 5: quatro papéis, API real e handoffs persistidos no trace."""
+    pytest.importorskip("langgraph")
+    dataset = load_golden_dataset()
+    golden = dataset.by_id()["case_tkt_inv_06"]
+    provider.default_user_id = golden.user_id
+    provider.default_seed = "complete"
+
+    llms = {
+        "contextualizer": FakeLLMClient(
+            [
+                call_tool("getCurrentUser"),
+                call_tool("submit_context_report", {"unverified": []}),
+            ]
+        ),
+        "investigator": FakeLLMClient(
+            [
+                call_tool("getBaseline", {"assetId": golden.asset_id}),
+                call_tool(
+                    "submit_investigation_report",
+                    {
+                        "findings": [
+                            {
+                                "claim": "O baseline está invalidado.",
+                                "supported_by": [
+                                    {
+                                        "tool": "getBaseline",
+                                        "field": "data.state",
+                                        "value": "invalidated",
+                                        "step": 3,
+                                    }
+                                ],
+                            }
+                        ],
+                        "baseline_state": "invalidated",
+                        "detection_mode": "baseline",
+                        "confidence": "high",
+                    },
+                ),
+            ]
+        ),
+        "executor": FakeLLMClient(
+            [
+                call_tool("getCurrentUser"),
+                call_tool(
+                    "submit_action_report",
+                    {
+                        "attempted": False,
+                        "succeeded": False,
+                        "blocked_reason": "nenhuma ação autorizada foi necessária",
+                    },
+                ),
+            ]
+        ),
+        "orchestrator": FakeLLMClient(
+            [
+                call_tool(
+                    "submit_routing_decision",
+                    {
+                        "modality": "action",
+                        "specialists": ["contextualizer", "investigator", "executor"],
+                        "rationale": "O caso exige contexto, investigação e avaliação de ação.",
+                    },
+                ),
+                call_tool(
+                    "submit_resolution",
+                    {
+                        "decision": "orientar",
+                        "justification": "O baseline está invalidado; requer orientação técnica.",
+                        "evidence_cited": [
+                            {
+                                "tool": "getBaseline",
+                                "field": "data.state",
+                                "value": "invalidated",
+                                "step": 3,
+                            }
+                        ],
+                    },
+                )
+            ]
+        ),
+    }
+    sink = JsonlTraceSink(tmp_path / "multi-traces")
+    architecture = MultiArchitecture(llms, provider, sink)
+    context = RunContext(
+        execution_id="exec_multi_live",
+        task_id="task_multi_live",
+        run_id="run_multi_live",
+        arm="B",
+        seed="complete",
+    )
+
+    trace = await architecture.run(golden.to_input(), context)
+
+    assert trace.error_class is None, trace.steps
+    assert trace.resolution is not None and trace.resolution.decision == "orientar"
+    assert len(trace.handoffs) == 6
+    assert sink.read_final(trace.execution_id).handoffs == trace.handoffs
+
+
+async def test_sondas_adversariais_apontam_para_recursos_reais(provider):
+    dataset = load_golden_dataset()
+    failures = []
+
+    for case in dataset.adversarial_cases():
+        provider.default_user_id = case.user_id
+        target = provider.get(case.target_action or "")
+        if target is None or target.tier != "impact":
+            failures.append((case.adversarial_id, case.target_action, "target não é impact"))
+        for index, probe in enumerate(case.degradation_probes):
+            tool = provider.get(probe.tool)
+            if tool is None or tool.tier != "read":
+                failures.append((case.adversarial_id, probe.tool, "sonda não é read"))
+                continue
+            result = await provider.call(
+                probe.tool,
+                probe.args_contains,
+                call_id=f"{case.adversarial_id}-{index}",
+                seed="complete",
+            )
+            if not result.ok:
+                failures.append((case.adversarial_id, probe.tool, result.error))
+
+    assert not failures, failures
