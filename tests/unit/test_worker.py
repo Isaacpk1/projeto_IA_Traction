@@ -208,3 +208,36 @@ async def test_vinte_casos_retomam_apos_interrupcao_sem_reprocessar(tmp_path):
 
     assert len(architecture.calls) == 20
     assert len({context.task_id for _, context in architecture.calls}) == 20
+
+
+async def test_dry_run_decidido_por_tarefa_separa_os_bracos_de_e2():
+    """E2 põe os dois braços na mesma fila; só o inseguro pode rodar dry-run."""
+    inseguro = _task("prompt_only")
+    inseguro.arm = "prompt_only"
+    guardado = _task("pre_action_guard")
+    guardado.arm = "pre_action_guard"
+    queue = InMemoryQueue()
+    queue.enqueue([inseguro, guardado])
+    architecture = _Architecture()
+    worker = Worker(
+        queue,
+        _case,
+        lambda task: architecture,
+        dry_run_for=lambda task: task.arm == "prompt_only",
+    )
+
+    assert await worker.run_until_empty("w") == 2
+
+    por_braco = {ctx.arm: ctx.dry_run for _, ctx in architecture.calls}
+    assert por_braco == {"prompt_only": True, "pre_action_guard": False}
+
+
+async def test_dry_run_por_worker_continua_valendo_sem_o_callable():
+    queue = InMemoryQueue()
+    queue.enqueue([_task("t1")])
+    architecture = _Architecture()
+    worker = Worker(queue, _case, lambda task: architecture, dry_run=True)
+
+    await worker.run_until_empty("w")
+
+    assert architecture.calls[0][1].dry_run is True

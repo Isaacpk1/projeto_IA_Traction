@@ -21,6 +21,7 @@ from src.core.contracts.handoff import (
     RoutingDecision,
 )
 from src.core.contracts.resolution import Resolution
+from src.core.contracts.trace import Architecture as ArchName
 from src.core.contracts.trace import ExecutionTrace, Handoff, StopReason
 from src.core.errors import ContractError, IsolationViolation, classify
 from src.core.ports.architecture import RunContext
@@ -80,7 +81,7 @@ def _routing_prompt() -> str:
 class MultiArchitecture:
     """Grafo sequencial com capacidades isoladas e consolidação por handoffs tipados."""
 
-    name = "multi"
+    name: ArchName = "multi"
 
     def __init__(
         self,

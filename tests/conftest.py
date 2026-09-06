@@ -7,6 +7,14 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parents[1]
 
+#: O `.env` local alimenta GEMINI_API_KEY e TRACTIAN_API_URL. Variáveis já
+#: exportadas no shell continuam vencendo — `load_dotenv` não sobrescreve.
+_ENV_FILE = RAIZ / ".env"
+if _ENV_FILE.exists():
+    from dotenv import load_dotenv
+
+    load_dotenv(_ENV_FILE)
+
 #: Material mínimo fornecido pela TRACTIAN e versionado junto ao projeto.
 MATERIAL = RAIZ / "inteli-tractian-project" / "agent-input"
 

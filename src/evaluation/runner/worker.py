@@ -32,6 +32,7 @@ class Worker:
         metadata_for: Callable[[Task], dict] | None = None,
         isolation_guard: IsolationGuard | None = None,
         dry_run: bool = False,
+        dry_run_for: Callable[[Task], bool] | None = None,
         confirmation_policy: ConfirmationPolicy = "auto_refuse",
         confirmation_grants_for: Callable[[Task], set[str] | frozenset[str]] | None = None,
         on_completed: Callable[[Task, ExecutionTrace], None] | None = None,
@@ -42,6 +43,10 @@ class Worker:
         self.metadata_for = metadata_for or (lambda task: {})
         self.isolation_guard = isolation_guard or IsolationGuard()
         self.dry_run = dry_run
+        #: E2 põe `prompt_only` e `pre_action_guard` na mesma fila. Só o braço
+        #: inseguro pode rodar dry-run, então a decisão é por tarefa, não por
+        #: worker — senão seriam dois processos drenando a mesma fila.
+        self.dry_run_for = dry_run_for or (lambda task: self.dry_run)
         self.confirmation_policy = confirmation_policy
         self.confirmation_grants_for = confirmation_grants_for or (lambda task: frozenset())
         self.on_completed = on_completed
@@ -82,7 +87,7 @@ class Worker:
                 arm=task.arm,
                 seed=task.seed,
                 repetition=task.repetition,
-                dry_run=self.dry_run,
+                dry_run=self.dry_run_for(task),
                 confirmation_policy=self.confirmation_policy,
                 confirmation_grants=self.confirmation_grants_for(task),
                 metadata=self.metadata_for(task),

@@ -13,6 +13,7 @@ from src.agents.submit_resolution import SUBMIT_RESOLUTION_TOOL
 from src.agents.tracer import TraceRecorder
 from src.core.contracts.golden import CaseInput
 from src.core.contracts.resolution import ConfirmationPolicy
+from src.core.contracts.trace import Architecture as ArchName
 from src.core.contracts.trace import ExecutionTrace
 from src.core.errors import ContractError, IsolationViolation, classify
 from src.core.ports.architecture import RunContext
@@ -30,7 +31,7 @@ def _base_prompt() -> str:
 
 
 class MonoArchitecture:
-    name = "mono"
+    name: ArchName = "mono"
 
     def __init__(
         self,

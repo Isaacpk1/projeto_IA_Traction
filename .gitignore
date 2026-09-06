@@ -23,6 +23,9 @@ __pycache__/
 artifacts/queue.db
 artifacts/queue.db-wal
 artifacts/queue.db-shm
+artifacts/quota.db
+artifacts/quota.db-wal
+artifacts/quota.db-shm
 artifacts/traces/dev_*/
 artifacts/runs/dev_*/
 

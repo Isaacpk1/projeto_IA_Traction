@@ -79,6 +79,33 @@ O que vem depois — ingestão de tickets, console, BFF, front, juiz, estatísti
 - **Qualidade local:** 151 testes, Ruff, mypy e os cinco contratos do `import-linter` estão verdes.
 - **Pendência da fase:** piloto de vazão com LLM real, bloqueado pela ausência de credencial Gemini.
 
+### 1.4 Estado verificado em 06/09/2026
+
+- **Runner CLI implementado — a lacuna que impedia o experimento.** Até aqui existia
+  plataforma, não experimento: nenhum entrypoint amarrava fila, arquiteturas, Gemini, sink e
+  scoring. `agentes plan | run | status` é agora o composition root em `interfaces/`, a única
+  fronteira do projeto onde SDK, HTTP, SQLite e disco se encontram.
+- **Matriz declarada virou código verificável:** `evaluation/matrix.py` reproduz E1
+  (17 × 2 arquiteturas × 8 seeds × 2 repetições = 544) e E2 (5 × 2 políticas × 5 = 50),
+  somando as **594 execuções** do núcleo. Os números são asserção de teste — se a matriz
+  divergir do pré-registro, a suíte quebra.
+- **`plan` é idempotente:** o `task_id` passou a incluir o braço, porque em E2 os dois braços
+  compartilham arquitetura, caso, seed e repetição — sem isso metade do experimento de
+  segurança nunca seria enfileirada. Replanejar após uma queda reenfileira só o que falta.
+- **`dry_run` passou a ser decidido por tarefa, não por worker.** E2 põe `prompt_only` e
+  `pre_action_guard` na mesma fila, e só o braço inseguro pode rodar dry-run; a alternativa
+  seria dois processos drenando a mesma fila.
+- **A ordem de emissão de E1 pareia os braços.** Uma rodada interrompida deixa dados A/B
+  pareados, não 300 execuções de A e nenhuma de B — a comparação central sobrevive à falta
+  de cota.
+- **Suíte inteira verde pela primeira vez:** **171 testes, 0 pulados**, com a API industrial
+  no ar. Ruff, mypy e os cinco contratos do `import-linter` também.
+- **Ambiente reparado:** o `.venv` tinha pacotes truncados (`faker`, `langchain-core`,
+  `google-genai`, `mypy`), o que produzia falhas que pareciam de código e não eram.
+- **Pendência que continua bloqueando tudo:** não há credencial Gemini. O runner recusa a
+  chave placeholder antes de enfileirar, mas nenhuma execução com LLM real ocorreu — e é
+  disso que dependem métricas sobre traces reais, medição de cota e o piloto de vazão.
+
 ---
 
 ## 2. As duas trilhas

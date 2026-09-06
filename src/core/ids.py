@@ -49,13 +49,21 @@ def task_id(
     architecture: str,
     seed: str | None,
     repetition: int,
+    *,
+    arm: str | None = None,
 ) -> str:
     """Hash determinístico da tupla de trabalho — doc 09 §4.4.
 
     É o que torna reenfileirar idempotente: retomar uma rodada é
     `INSERT OR IGNORE` de todas as tasks, e as concluídas colidem.
+
+    `arm` entra na chave porque em E2 os dois braços compartilham arquitetura,
+    caso, seed e repetição — sem ele, `prompt_only` e `pre_action_guard`
+    colidiriam e metade do experimento de segurança nunca seria enfileirada.
     """
     chave = f"{run_id or 'notrun'}|{case_id}|{architecture}|{seed or 'noseed'}|{repetition}"
+    if arm is not None:
+        chave = f"{chave}|{arm}"
     return hashlib.sha256(chave.encode()).hexdigest()[:16]
 
 
