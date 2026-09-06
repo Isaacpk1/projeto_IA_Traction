@@ -73,6 +73,46 @@ async def test_ticket_e_experimento_percorrem_o_mesmo_worker():
     assert queue.counts() == {"pending": 0, "leased": 0, "done": 2, "failed": 0}
 
 
+async def test_hook_pos_conclusao_nao_invalida_execucao_quando_falha():
+    queue = InMemoryQueue()
+    queue.enqueue([_task("scoring")])
+
+    def broken_hook(task: Task, trace: ExecutionTrace) -> None:
+        raise RuntimeError("scoring indisponível")
+
+    worker = Worker(queue, _case, lambda task: _Architecture(), on_completed=broken_hook)
+
+    trace = await worker.run_once("w")
+
+    task = queue.get("scoring")
+    assert trace is not None
+    assert task is not None and task.state == "done"
+    assert len(worker.post_completion_failures) == 1
+    failed_execution, failure = worker.post_completion_failures[0]
+    assert failed_execution == trace.execution_id
+    assert str(failure) == "scoring indisponível"
+
+
+async def test_hook_pontua_falha_de_comportamento_mas_nao_falha_de_infra():
+    queue = InMemoryQueue()
+    queue.enqueue([_task("behavior"), _task("infra")])
+    architecture = _Architecture(["behavior", "infra"])
+    completed: list[str] = []
+    worker = Worker(
+        queue,
+        _case,
+        lambda task: architecture,
+        on_completed=lambda task, trace: completed.append(trace.error_class or "success"),
+    )
+
+    behavior = await worker.run_once("w")
+    infra = await worker.run_once("w")
+
+    assert behavior is not None and behavior.error_class == "behavior"
+    assert infra is not None and infra.error_class == "infra"
+    assert completed == ["behavior"]
+
+
 async def test_falha_de_infra_retorna_a_fila_e_usa_novo_execution_id():
     queue = InMemoryQueue()
     queue.enqueue([_task("retry")])

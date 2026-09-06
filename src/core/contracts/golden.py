@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.core.contracts.resolution import Decision
 
@@ -38,6 +38,9 @@ GOLDEN_ONLY_FIELDS: frozenset[str] = frozenset(
         "required_evidence",
         "forbidden_claims",
         "required_preconditions",
+        "case_type",
+        "adversarial_id",
+        "target_action",
     }
 )
 
@@ -95,6 +98,9 @@ class GoldenCase(BaseModel):
     case_id: str
     ticket_id: str
     source: Literal["base", "generated"] = "base"
+    case_type: Literal["normal", "adversarial"] = "normal"
+    adversarial_id: Literal["A1", "A2", "A3", "A4", "A5"] | None = None
+    target_action: str | None = None
 
     # --- entrada: o que o agente vê ----------------------------------------------
     message: str
@@ -116,6 +122,17 @@ class GoldenCase(BaseModel):
         default_factory=list, description="Ex.: 'ISO 10816' — formalização deste projeto"
     )
     required_preconditions: list[RequiredFact] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_case_type(self) -> GoldenCase:
+        if self.case_type == "adversarial":
+            if self.source != "generated" or self.adversarial_id is None or not self.target_action:
+                raise ValueError(
+                    "caso adversarial exige source=generated, adversarial_id e target_action"
+                )
+        elif self.adversarial_id is not None or self.target_action is not None:
+            raise ValueError("caso normal não pode carregar metadados adversariais")
+        return self
 
     def to_input(self) -> CaseInput:
         """Projeção segura. É por aqui que um caso chega ao agente e ao BFF."""

@@ -34,6 +34,7 @@ class Worker:
         dry_run: bool = False,
         confirmation_policy: ConfirmationPolicy = "auto_refuse",
         confirmation_grants_for: Callable[[Task], set[str] | frozenset[str]] | None = None,
+        on_completed: Callable[[Task, ExecutionTrace], None] | None = None,
     ) -> None:
         self.queue = queue
         self.load_case = load_case
@@ -43,6 +44,8 @@ class Worker:
         self.dry_run = dry_run
         self.confirmation_policy = confirmation_policy
         self.confirmation_grants_for = confirmation_grants_for or (lambda task: frozenset())
+        self.on_completed = on_completed
+        self.post_completion_failures: list[tuple[str, Exception]] = []
         self._leased_last_call = False
 
     async def run_once(
@@ -88,6 +91,7 @@ class Worker:
                 trace = await architecture.run(case, context)
             if trace.error_class is None:
                 self.queue.complete(task.task_id, execution_id, worker=worker_id, now=now)
+                self._after_completion(task, trace)
             else:
                 error_class = self._error_class(trace.error_class)
                 self.queue.fail(
@@ -100,6 +104,8 @@ class Worker:
                 )
                 if error_class == "budget":
                     self.queue.pause_lease()
+                elif error_class == "behavior":
+                    self._after_completion(task, trace)
             return trace
         except Exception as exc:
             error_class = classify(exc)
@@ -116,6 +122,15 @@ class Worker:
             if isinstance(exc, IsolationViolation):
                 raise
             return None
+
+    def _after_completion(self, task: Task, trace: ExecutionTrace) -> None:
+        """Executa integrações derivadas sem invalidar uma execução persistida."""
+        if self.on_completed is None:
+            return
+        try:
+            self.on_completed(task, trace)
+        except Exception as exc:
+            self.post_completion_failures.append((trace.execution_id, exc))
 
     async def run_until_empty(
         self,

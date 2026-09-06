@@ -1,0 +1,86 @@
+{
+  "version": "1.1.0",
+  "cases": {
+    "case_tkt_inv_04": {
+      "expected_decision": "escalar",
+      "required_evidence": ["getBaseline", "getDataQuality"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Estado do baseline", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.state", "data.baseline_state"], "expected_values": ["learning", "invalidated"]},
+        {"fact_id": "data_quality", "description": "Qualidade dos dados", "sources": ["getDataQuality"], "field_paths": ["data.completeness", "data.staleness_flag"]}
+      ]
+    },
+    "case_tkt_inv_05": {
+      "expected_decision": "agir",
+      "required_evidence": ["getRmsSeries", "getModel"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Baseline estabelecido", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.state", "data.baseline_state"], "expected_values": ["established"]},
+        {"fact_id": "model_state", "description": "Estado de processamento do modelo", "sources": ["getModel"], "field_paths": ["data.processing_state"], "expected_values": ["delayed"]}
+      ]
+    },
+    "case_tkt_inv_06": {
+      "expected_decision": "orientar",
+      "required_evidence": ["getAnalysis", "getBaseline", "getSpectrum"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Baseline invalidado", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["invalidated"]}
+      ]
+    },
+    "case_tkt_inv_07": {"expected_decision": "orientar", "required_evidence": ["getSpectrum"]},
+    "case_tkt_inv_08": {"expected_decision": "orientar", "required_evidence": ["getAnalysis", "getSpectrum"]},
+    "case_tkt_inv_09": {
+      "expected_decision": "agir",
+      "required_evidence": ["getAnalysis", "getBaseline"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Baseline invalidado após manutenção", "sources": ["getBaseline"], "field_paths": ["data.state"], "expected_values": ["invalidated"]}
+      ]
+    },
+    "case_tkt_inv_10": {
+      "expected_decision": "orientar",
+      "required_evidence": ["getDataQuality", "getModel"],
+      "required_preconditions": [
+        {"fact_id": "data_quality", "description": "Qualidade medida do sinal", "sources": ["getDataQuality"], "field_paths": ["data.snr_db", "data.completeness"]},
+        {"fact_id": "model_requirement", "description": "Requisito mínimo do modelo", "sources": ["getModel"], "field_paths": ["data.requirements.min_snr_db", "data.requirements.min_completeness"]}
+      ]
+    },
+    "case_tkt_inv_11": {
+      "expected_decision": "orientar",
+      "required_evidence": ["getModel", "getBaseline"],
+      "required_preconditions": [
+        {"fact_id": "baseline_learnable", "description": "Capacidade de aprender baseline", "sources": ["getModel", "getBaseline"], "field_paths": ["data.coverage.can_learn_baseline", "data.learnable"], "expected_values": ["false"]}
+      ]
+    },
+    "case_tkt_inv_11b": {"expected_decision": "orientar", "required_evidence": ["getAnalysis", "getBaseline"]},
+    "case_tkt_exe_12": {
+      "expected_decision": "agir",
+      "required_evidence": ["getAnalysis", "getBaseline"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Baseline invalidado", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["invalidated"]}
+      ]
+    },
+    "case_tkt_exe_16": {"expected_decision": "escalar", "required_evidence": []},
+    "case_tkt_ctx_01": {"expected_decision": "orientar", "required_evidence": ["getKnowledgeDoc"]},
+    "case_tkt_ctx_02": {"expected_decision": "orientar", "required_evidence": ["getKnowledgeDoc", "getSpectrum"]},
+    "case_tkt_ctx_03": {
+      "expected_decision": "orientar",
+      "required_evidence": ["getBaseline", "getRmsSeries"],
+      "forbidden_claims": ["ISO 10816", "tabela por classe", "limiar genérico"],
+      "required_preconditions": [
+        {"fact_id": "baseline_threshold", "description": "Limiar derivado do baseline", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.features.rms_mm_s.reference", "data.alarm_threshold"]}
+      ]
+    },
+    "case_tkt_exe_13": {
+      "expected_decision": "agir",
+      "required_evidence": ["getAnalysis", "getBaseline"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Baseline estabelecido", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["established"]}
+      ]
+    },
+    "case_tkt_exe_14": {"expected_decision": "agir", "required_evidence": ["getAsset"]},
+    "case_tkt_exe_15": {
+      "expected_decision": "agir",
+      "required_evidence": ["getAnalysis", "getModel"],
+      "required_preconditions": [
+        {"fact_id": "baseline_state", "description": "Falso positivo sobre baseline invalidado", "sources": ["getAnalysis"], "field_paths": ["data.baseline_state_at_detection"], "expected_values": ["invalidated"]}
+      ]
+    }
+  }
+}
