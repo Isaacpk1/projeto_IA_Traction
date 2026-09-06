@@ -74,6 +74,15 @@ section{margin-top:56px}
   padding:4px 11px;border:1px solid currentColor;border-radius:2px}
 .pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 .pill.ok{color:var(--ok)} .pill.no{color:var(--no)} .pill.unk{color:var(--unk)}
+.coefs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);margin-top:18px}
+.coef{background:var(--sunken);padding:15px 17px}
+.coef .k{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.coef .v{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:30px;font-weight:700;
+  font-variant-numeric:tabular-nums;margin:5px 0 1px;line-height:1}
+.coef .ci{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.coef .q{font-size:13px;color:var(--ink-2);margin-top:9px;line-height:1.45}
 
 /* comparação de braços */
 .arms{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;
@@ -263,14 +272,50 @@ function pill(status) {
   host.append(
     el("div", { class: "eyebrow" }, "Pergunta central · H1"),
     el("div", { class: "verdict" }, frase),
-    el("p", {}, detalhe),
-    h1 ? el("div", { style: "margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap" },
-      pill(h1.status),
-      el("span", { class: "mono", style: "color:var(--ink-3);font-size:12.5px" },
-        `P1.1 dose-resposta · n=${h1.n}` +
-        (h1.estimativa !== null ? ` · interação ${fmt(h1.estimativa)} · IC95 [${fmt(h1.ci_low)} · ${fmt(h1.ci_high)}]` : ""))
-    ) : null
+    el("p", {}, detalhe)
   );
+
+  /* Dois coeficientes, duas perguntas diferentes. Mostrar so a interacao deixaria
+     "sustentada" ser lido como "a multi venceu", que nao e o que ela diz. */
+  if (h1 && h1.estimativa !== null) {
+    const ef = (h1.detalhe || {}).efeito_principal;
+    const cr = (h1.detalhe || {}).cruzamento;
+    const grid = el("div", { class: "coefs" });
+    grid.append(
+      el("div", { class: "coef" },
+        el("div", { class: "k" }, "Interação  intensidade × braço"),
+        el("div", { class: "v" }, fmt(h1.estimativa)),
+        el("div", { class: "ci" }, `IC95 [${fmt(h1.ci_low)} · ${fmt(h1.ci_high)}]`),
+        el("div", { class: "q" }, "A distância entre os braços muda com a degradação? " +
+          "Positivo = a multi encurta. É o teste pré-registrado de P1.1.")),
+      ef ? el("div", { class: "coef" },
+        el("div", { class: "k" }, "Efeito principal  braço multi"),
+        el("div", { class: "v" }, fmt(ef.coef)),
+        el("div", { class: "ci" }, `IC95 [${fmt(ef.ci_low)} · ${fmt(ef.ci_high)}]`),
+        el("div", { class: "q" }, "Quem está na frente com evidência íntegra? " +
+          "Negativo = a multi está atrás.")) : null
+    );
+    host.append(
+      el("div", { style: "margin-top:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap" },
+        pill(h1.status),
+        el("span", { class: "mono", style: "color:var(--ink-3);font-size:12.5px" },
+          `P1.1 · dose-resposta · n=${h1.n}`)),
+      grid
+    );
+    if (ef && ef.coef < 0 && h1.estimativa > 0) {
+      const dentro = cr && cr.dentro_da_faixa;
+      host.append(el("div", { class: "note caveat", style: "margin-top:18px" },
+        el("p", { html:
+          "<b>“Sustentada” aqui não quer dizer que a multi venceu.</b> Os dois coeficientes " +
+          "contam uma história só: a multi começa <b>atrás</b> e encurta a distância conforme a " +
+          "evidência piora. O teste pré-registrado é sobre a inclinação, não sobre quem lidera." })
+      ));
+      if (cr) host.append(el("p", { class: "mono", style: "font-size:12.5px;color:var(--ink-3);margin-top:10px",
+        html: `Empate estimado em intensidade ${fmt(cr.intensidade)} — ` +
+          (dentro ? "dentro" : "fora") + ` da faixa observada [${fmt(cr.faixa_observada[0])} · ` +
+          `${fmt(cr.faixa_observada[1])}]. É extrapolação do ajuste, não observação direta.` }));
+    }
+  }
 })();
 
 /* braços */

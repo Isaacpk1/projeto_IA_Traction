@@ -169,10 +169,38 @@ def avaliar_h1_dose_resposta(df, *, metrica: str = "M4") -> TestResult:
         status = "refutada_direcao_oposta"
     else:
         status = "inconclusiva"
+
+    # O termo de interação diz como a distância entre braços MUDA com a dose. Ele
+    # nao diz quem esta na frente. Interacao positiva com efeito principal negativo
+    # significa "a multi encurta a distancia", nao "a multi vence" — e sem reportar
+    # o efeito principal, `sustentada` seria lido como vitoria da multi.
+    principal = next((t for t in modelo.params.index if t.startswith("C(arm)")), None)
+    detalhe: dict = {"termo": termo, "pseudo_r2": float(modelo.prsquared)}
+    if principal is not None:
+        ic_p = modelo.conf_int().loc[principal]
+        efeito = float(modelo.params[principal])
+        detalhe["efeito_principal"] = {
+            "termo": principal, "coef": efeito,
+            "ci_low": float(ic_p[0]), "ci_high": float(ic_p[1]),
+            "p": float(modelo.pvalues[principal]),
+        }
+        # Intensidade em que os dois bracos empatam: efeito + interacao * i = 0.
+        if abs(coef) > 1e-9:
+            cruzamento = -efeito / coef
+            lo = float(dados["intensidade"].min())
+            hi = float(dados["intensidade"].max())
+            detalhe["cruzamento"] = {
+                "intensidade": cruzamento,
+                "dentro_da_faixa": bool(lo <= cruzamento <= hi),
+                "faixa_observada": [lo, hi],
+            }
+            detalhe["multi_lidera_em_algum_ponto"] = bool(
+                efeito > 0 or (lo <= cruzamento <= hi and coef > 0)
+            )
     return TestResult(
         "H1", "P1.1", "regressão logística com interação", metrica, n,
         estimate=coef, ci_low=baixo, ci_high=alto, p_value=float(modelo.pvalues[termo]),
-        status=status, detail={"termo": termo, "pseudo_r2": float(modelo.prsquared)},
+        status=status, detail=detalhe,
     )
 
 

@@ -18,6 +18,7 @@ depois de uma queda reenfileira só o que falta.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import time
@@ -30,6 +31,7 @@ from src.agents.architectures import MonoArchitecture, MultiArchitecture
 from src.analysis import MetricSQLiteRepository
 from src.core.contracts.golden import CaseInput, GoldenCase
 from src.core.contracts.task import Task
+from src.core.contracts.trace import ExecutionTrace
 from src.core.errors import ContractError
 from src.core.ports.architecture import Architecture as ArchitecturePort
 from src.core.ports.llm import LLMClient
@@ -271,6 +273,58 @@ def status(
     for estado, quantidade in sorted(counts.items()):
         typer.echo(f"{estado:>8}  {quantidade:>5}")
     typer.echo(f"{'total':>8}  {total:>5}")
+
+
+# ---------------------------------------------------------------------------
+# rescore
+# ---------------------------------------------------------------------------
+@app.command()
+def rescore(
+    run_id: Annotated[str, typer.Option(help="Rodada a reprocessar.")],
+    metrics: Annotated[Path, typer.Option(help="SQLite das métricas.")] = DEFAULT_METRICS,
+    traces: Annotated[Path, typer.Option(help="Raiz dos traces.")] = DEFAULT_TRACES,
+    version: Annotated[
+        str | None, typer.Option(help="Versão da métrica a gravar; use ao mudar um scorer.")
+    ] = None,
+) -> None:
+    """Recomputa M1–M16 sobre os traces já gravados — RF34.
+
+    Não reexecuta o agente e não gasta cota: o trace é o contrato, e corrigir um
+    scorer não deveria custar uma nova rodada. Grave numa versão nova quando a
+    definição mudar, para que a série antiga continue auditável ao lado.
+    """
+    from src.analysis import MetricSQLiteRepository, score
+    from src.analysis.scorers.execution import DEFAULT_METRIC_VERSION
+
+    dataset = _dataset()
+    por_id = dataset.by_id()
+    raiz = Path(traces) / run_id
+    if not raiz.exists():
+        raise typer.BadParameter(f"sem traces em {raiz}")
+
+    versao = version or DEFAULT_METRIC_VERSION
+    reprocessadas = ignoradas = 0
+    with MetricSQLiteRepository(metrics) as repositorio:
+        for arquivo in sorted(raiz.glob("*.jsonl")):
+            final = None
+            for linha in arquivo.read_text(encoding="utf-8").splitlines():
+                if not linha.strip():
+                    continue
+                registro = json.loads(linha)
+                if registro.get("type") == "execution_finished":
+                    final = registro.get("trace")
+            if final is None:
+                continue
+            golden = por_id.get(final.get("case_id", ""))
+            if golden is None:
+                ignoradas += 1
+                continue
+            trace = ExecutionTrace.model_validate(final)
+            repositorio.save(score(trace, golden, version=versao))
+            reprocessadas += 1
+
+    typer.echo(f"{reprocessadas} execuções reprocessadas na versão {versao}"
+               + (f" · {ignoradas} sem caso no golden" if ignoradas else ""))
 
 
 # ---------------------------------------------------------------------------
