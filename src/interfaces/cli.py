@@ -355,6 +355,7 @@ def dashboard(
     artefatos.
     """
     from src.analysis import load_frame
+    from src.analysis.dataset import load_execution_details
     from src.analysis.report import montar_relatorio
     from src.evaluation.degradation import carregar_intensidade
     from src.interfaces.dashboard import escrever_dashboard, render_dashboard
@@ -374,8 +375,17 @@ def dashboard(
         e2_df = load_frame(traces, e2_metrics, run_id=e2_run_id)
 
     relatorio = montar_relatorio(df, run_id=run_id, e2_df=e2_df)
+    # O explorador so mostra o que entrou na analise; um trace fora do desenho na
+    # tela e um convite a ler resultado que nenhuma metrica conta.
+    vistos = set(df["execution_id"]) if len(df) else set()
+    execucoes = [
+        detalhe
+        for detalhe in load_execution_details(traces, run_id=run_id)
+        if detalhe["id"] in vistos
+    ]
     html = render_dashboard(
         relatorio,
+        execucoes=execucoes,
         commit=_code_commit(),
         gerado=time.strftime("%d/%m/%Y %H:%M"),
         alvo=alvo,

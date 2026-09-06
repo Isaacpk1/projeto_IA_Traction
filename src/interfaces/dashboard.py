@@ -127,7 +127,46 @@ ul.plain{margin:14px 0 0;padding-left:20px;color:var(--ink-2);font-size:15px;max
 ul.plain li{margin-bottom:9px}
 footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--rule);
   font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
-@media (max-width:640px){ .wrap{padding:32px 16px 64px} th,td{padding:8px 10px} }
+
+/* explorador de trajetórias */
+.filtros{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 14px;align-items:center}
+.filtros select,.filtros input{font-family:"IBM Plex Mono",monospace;font-size:12.5px;
+  padding:6px 9px;border:1px solid var(--rule);background:var(--surface);color:var(--ink);border-radius:2px}
+.filtros input{min-width:190px}
+.filtros .cont{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3);margin-left:auto}
+.exec-list{border:1px solid var(--rule);background:var(--surface);max-height:520px;overflow-y:auto}
+.exec{display:grid;grid-template-columns:14px 1fr auto auto auto;gap:12px;align-items:center;
+  padding:9px 14px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:13.5px}
+.exec:last-child{border-bottom:none}
+.exec:hover,.exec:focus-visible{background:var(--sunken);outline:none}
+.exec[aria-expanded="true"]{background:var(--sunken)}
+.exec .bar{width:5px;height:26px;border-radius:1px}
+.exec .cid{font-family:"IBM Plex Mono",monospace;color:var(--ink)}
+.exec .tag2{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.exec .dec{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:600}
+.detalhe{border-bottom:1px solid var(--rule);background:var(--ground);padding:18px 20px}
+.detalhe h4{margin:0 0 10px;font-family:"IBM Plex Sans Condensed",sans-serif;font-size:15px;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
+.detalhe h4+h4{margin-top:22px}
+.passo{display:grid;grid-template-columns:38px 118px 1fr;gap:12px;padding:7px 0;
+  border-bottom:1px dashed var(--rule);font-size:13px}
+.passo:last-child{border-bottom:none}
+.passo .n{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size:12px}
+.passo .who{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--accent);font-weight:600}
+.passo .what{min-width:0}
+.passo .tool{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--ink)}
+.passo .args,.passo .res{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);
+  overflow-wrap:anywhere;margin-top:3px}
+.passo .res.err{color:var(--no)}
+.resol{background:var(--surface);border:1px solid var(--rule);padding:15px 17px;margin-top:10px}
+.resol .just{font-size:14px;color:var(--ink-2);margin:8px 0 0;white-space:pre-wrap}
+.evid{display:grid;grid-template-columns:auto 1fr auto;gap:8px 12px;margin-top:12px;
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;align-items:baseline}
+.evid .sim{color:var(--ok);font-weight:600} .evid .nao{color:var(--no);font-weight:600}
+.hoff{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2);padding:5px 0}
+.vazio{padding:26px;text-align:center;color:var(--ink-3);font-size:14px}
+@media (max-width:640px){ .wrap{padding:32px 16px 64px} th,td{padding:8px 10px}
+  .exec{grid-template-columns:14px 1fr auto} .passo{grid-template-columns:32px 1fr} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 """
 
@@ -383,6 +422,115 @@ desenharCasos(document.getElementById("casos"), R.pareado_por_caso);
 })();
 """
 
+_JS_EXEC = r"""
+/* ---------- explorador de trajetórias ---------- */
+(function () {
+  const E = window.__EXECUCOES__ || [];
+  const lista = document.getElementById("execs");
+  const conta = document.getElementById("conta-exec");
+  if (!E.length) { lista.append(el("div", { class: "vazio" }, "Sem execuções carregadas.")); return; }
+
+  const fArm = document.getElementById("f-arm");
+  const fDec = document.getElementById("f-dec");
+  const fGuard = document.getElementById("f-guard");
+  const fBusca = document.getElementById("f-busca");
+
+  const decisoes = [...new Set(E.map(e => (e.resolucao || {}).decision).filter(Boolean))].sort();
+  decisoes.forEach(d => fDec.append(el("option", { value: d }, d)));
+
+  const COR = { A: "--arm-a", B: "--arm-b" };
+  const rotuloArm = a => a === "A" ? "mono" : a === "B" ? "multi" : a;
+
+  function detalhe(e) {
+    const box = el("div", { class: "detalhe" });
+    if (e.handoffs.length) {
+      box.append(el("h4", {}, `Handoffs (${e.handoffs.length})`));
+      e.handoffs.forEach(h => box.append(el("div", { class: "hoff" },
+        `${h.de} → ${h.para}  ·  após passo ${h.apos_passo}`)));
+    }
+    box.append(el("h4", {}, `Trajetória — ${e.passos.length} passos`));
+    e.passos.forEach(p => {
+      const what = el("div", { class: "what" });
+      if (p.tool) what.append(el("span", { class: "tool" }, p.tool));
+      if (p.reasoning) what.append(el("div", { class: "args" }, p.reasoning));
+      if (p.args && Object.keys(p.args).length)
+        what.append(el("div", { class: "args" }, JSON.stringify(p.args)));
+      if (p.erro) what.append(el("div", { class: "res err" }, "erro: " + p.erro));
+      else if (p.resultado) what.append(el("div", { class: "res" }, p.resultado));
+      box.append(el("div", { class: "passo" },
+        el("div", { class: "n" }, String(p.step)),
+        el("div", { class: "who" }, p.agent),
+        what));
+    });
+
+    const r = e.resolucao;
+    box.append(el("h4", {}, "Resolução entregue"));
+    if (!r) {
+      box.append(el("div", { class: "resol" },
+        el("div", { class: "just" }, "O agente terminou sem chamar submit_resolution.")));
+    } else {
+      const caixa = el("div", { class: "resol" },
+        el("div", { class: "dec", style: "font-family:IBM Plex Mono,monospace;font-weight:600" },
+          "decisão: " + r.decision),
+        el("div", { class: "just" }, r.justification || "—"));
+      if (r.evidencias.length) {
+        const g = el("div", { class: "evid" });
+        r.evidencias.forEach(ev => {
+          g.append(
+            el("span", { class: ev.resolve ? "sim" : "nao" }, ev.resolve ? "resolve" : "não resolve"),
+            el("span", {}, `${ev.tool} · ${ev.field}`),
+            el("span", { style: "color:var(--ink-3)" }, "step " + ev.step));
+        });
+        caixa.append(g);
+      }
+      if (r.unverified.length)
+        caixa.append(el("div", { class: "args", style: "margin-top:10px" },
+          "lacunas declaradas: " + r.unverified.join(" · ")));
+      if (e.guard.verdict === "blocked")
+        caixa.append(el("div", { class: "args", style: "margin-top:10px;color:var(--no)" },
+          `guardrail bloqueou (${e.guard.failed.join(", ")}) e entregou "${e.guard.decision}"`));
+      box.append(caixa);
+    }
+    return box;
+  }
+
+  function render() {
+    lista.textContent = "";
+    const termo = fBusca.value.trim().toLowerCase();
+    const vis = E.filter(e =>
+      (!fArm.value || e.arm === fArm.value) &&
+      (!fDec.value || (e.resolucao || {}).decision === fDec.value) &&
+      (!fGuard.value || (e.guard.verdict || "—") === fGuard.value) &&
+      (!termo || e.case_id.toLowerCase().includes(termo)));
+    conta.textContent = `${vis.length} de ${E.length}`;
+    if (!vis.length) { lista.append(el("div", { class: "vazio" }, "Nenhuma execução com esses filtros.")); return; }
+    vis.forEach(e => {
+      const dec = (e.resolucao || {}).decision;
+      const linha = el("div", { class: "exec", role: "button", tabindex: "0", "aria-expanded": "false" },
+        el("div", { class: "bar", style: `background:var(${COR[e.arm] || "--ink-3"})` }),
+        el("div", { class: "cid" }, e.case_id.replace("case_tkt_", "").replace("case_", "")),
+        el("div", { class: "tag2" }, `${rotuloArm(e.arm)} · ${e.seed || "—"} · ${e.passos.length} passos`),
+        el("div", { class: "dec", style: dec ? "" : "color:var(--unk)" }, dec || "sem resolução"),
+        el("div", { class: "tag2", style: e.guard.verdict === "blocked" ? "color:var(--no)" : "" },
+          e.guard.verdict || "—"));
+      let aberto = null;
+      const alterna = () => {
+        if (aberto) { aberto.remove(); aberto = null; linha.setAttribute("aria-expanded", "false"); }
+        else { aberto = detalhe(e); linha.after(aberto); linha.setAttribute("aria-expanded", "true"); }
+      };
+      linha.addEventListener("click", alterna);
+      linha.addEventListener("keydown", ev => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); alterna(); }
+      });
+      lista.append(linha);
+    });
+  }
+  [fArm, fDec, fGuard].forEach(c => c.addEventListener("change", render));
+  fBusca.addEventListener("input", render);
+  render();
+})();
+"""
+
 _HTML = """<title>Mono ou Multi-Agente</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -484,7 +632,27 @@ _HTML = """<title>Mono ou Multi-Agente</title>
   </section>
 
   <section>
-    <div class="sec-head"><span class="sec-num">6.4</span><h2>O que este relatório não sustenta</h2></div>
+    <div class="sec-head"><span class="sec-num">6.4</span><h2>O que cada agente respondeu</h2></div>
+    <p>A trajetória completa de cada execução: o que o agente chamou, o que a API devolveu, o que
+    ele concluiu e se a evidência citada resolve. É a pergunta que o trace canônico sempre pôde
+    responder e que nenhuma interface expunha — clique numa linha para abrir.</p>
+    <div class="filtros">
+      <select id="f-arm" aria-label="Filtrar por braço">
+        <option value="">todos os braços</option><option value="A">mono</option><option value="B">multi</option>
+      </select>
+      <select id="f-dec" aria-label="Filtrar por decisão"><option value="">todas as decisões</option></select>
+      <select id="f-guard" aria-label="Filtrar por guardrail">
+        <option value="">guardrail: qualquer</option><option value="pass">passou</option>
+        <option value="blocked">bloqueado</option>
+      </select>
+      <input id="f-busca" type="search" placeholder="filtrar por chamado…" aria-label="Filtrar por chamado">
+      <span class="cont" id="conta-exec"></span>
+    </div>
+    <div class="exec-list" id="execs"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">6.5</span><h2>O que este relatório não sustenta</h2></div>
     <ul class="plain">
       <li><b>A intensidade varia mais entre chamados do que entre seeds.</b> A dose-resposta
       apoia-se em heterogeneidade entre casos, o que é mais fraco que variação dentro do mesmo caso.</li>
@@ -507,7 +675,8 @@ _HTML = """<title>Mono ou Multi-Agente</title>
     artefatos reproduz estes números.
   </footer>
 </div>
-<script>window.__RELATORIO__ = {dados};</script>
+<script>window.__RELATORIO__ = {dados};
+window.__EXECUCOES__ = {execucoes};</script>
 <script>{js}</script>
 """
 
@@ -518,6 +687,7 @@ concluídas. Os números abaixo são parciais e mudam até o fim da rodada.</p><
 def render_dashboard(
     relatorio: dict,
     *,
+    execucoes: list[dict] | None = None,
     commit: str = "unknown",
     prompt_version: str = "1.1.0",
     gerado: str = "",
@@ -529,8 +699,9 @@ def render_dashboard(
         aviso = _AVISO.format(feitas=relatorio.get("execucoes", 0), alvo=alvo)
     return (
         _HTML.replace("{css}", _CSS)
-        .replace("{js}", _JS + _JS_MONTA)
+        .replace("{js}", _JS + _JS_MONTA + _JS_EXEC)
         .replace("{dados}", json.dumps(relatorio, ensure_ascii=False))
+        .replace("{execucoes}", json.dumps(execucoes or [], ensure_ascii=False))
         .replace("{run_id}", str(relatorio.get("run_id") or "—"))
         .replace("{execucoes}", str(relatorio.get("execucoes", 0)))
         .replace("{commit}", commit)

@@ -18,7 +18,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-__all__ = ["ExecutionRow", "load_executions", "load_frame", "COLUNAS_BASE"]
+__all__ = [
+    "COLUNAS_BASE",
+    "ExecutionRow",
+    "load_execution_details",
+    "load_executions",
+    "load_frame",
+]
 
 #: Colunas que descrevem a execução; o resto do quadro é uma coluna por métrica.
 COLUNAS_BASE = (
@@ -169,3 +175,91 @@ def load_frame(
             registro["intensidade"] = intensity.get((linha.case_id, linha.seed or ""))
         registros.append(registro)
     return pd.DataFrame.from_records(registros)
+
+
+def _resumo(valor: object, limite: int = 260) -> str:
+    """Recorta o retorno de uma tool para caber na página sem virar dump."""
+    texto = json.dumps(valor, ensure_ascii=False) if not isinstance(valor, str) else valor
+    return texto if len(texto) <= limite else texto[:limite] + "…"
+
+
+def load_execution_details(
+    traces_dir: str | Path,
+    *,
+    run_id: str | None = None,
+    max_execucoes: int | None = None,
+) -> list[dict]:
+    """Trajetória completa de cada execução, para inspeção humana.
+
+    É o que responde "por que o agente decidiu isso?" — a pergunta que o trace
+    canônico sempre pôde responder e que nenhuma interface expunha. Os retornos
+    de tool são recortados: a página serve para ler a trajetória, e o JSONL
+    continua sendo a fonte íntegra.
+    """
+    from src.core.contracts.trace import ExecutionTrace
+    from src.core.evidence import evidence_matches
+
+    detalhes: list[dict] = []
+    for trace_raw in _traces_finais(Path(traces_dir)):
+        if run_id is not None and trace_raw.get("run_id") != run_id:
+            continue
+        trace = ExecutionTrace.model_validate(trace_raw)
+        resolucao = trace.resolution
+        entregue = trace_raw.get("delivered") or {}
+        detalhes.append({
+            "id": trace.execution_id,
+            "case_id": trace.case_id,
+            "arm": trace.arm,
+            "architecture": trace.architecture,
+            "seed": trace_raw.get("api_seed"),
+            "repetition": trace.repetition,
+            "error_class": trace.error_class,
+            "stop_reason": trace.stop_reason,
+            "llm_calls": trace.llm_calls,
+            "tokens_in": trace.tokens_in,
+            "duracao_s": round((trace.duration_ms or 0) / 1000, 1),
+            "guard": {
+                "verdict": entregue.get("guardrail_verdict"),
+                "failed": entregue.get("guardrail_failed_checks") or [],
+                "decision": entregue.get("decision"),
+            },
+            "passos": [
+                {
+                    "step": passo.step,
+                    "agent": passo.agent,
+                    "tool": passo.tool,
+                    "args": passo.args,
+                    "resultado": _resumo(passo.result) if passo.result is not None else None,
+                    "erro": passo.error,
+                    "reasoning": _resumo(passo.reasoning, 400) if passo.reasoning else None,
+                }
+                for passo in trace.steps
+            ],
+            "handoffs": [
+                {
+                    "de": h.from_agent,
+                    "para": h.to_agent,
+                    "apos_passo": h.after_step,
+                    "payload": _resumo(h.payload, 500),
+                }
+                for h in (trace.handoffs or [])
+            ],
+            "resolucao": None if resolucao is None else {
+                "decision": resolucao.decision,
+                "justification": resolucao.justification,
+                "action_taken": resolucao.action_taken,
+                "unverified": list(resolucao.unverified or []),
+                "conflicts": list(resolucao.conflicts or []),
+                "evidencias": [
+                    {
+                        "tool": ref.tool, "field": ref.field,
+                        "value": _resumo(ref.value, 120), "step": ref.step,
+                        "resolve": evidence_matches(ref, trace),
+                    }
+                    for ref in (resolucao.evidence_cited or [])
+                ],
+            },
+        })
+        if max_execucoes is not None and len(detalhes) >= max_execucoes:
+            break
+    return detalhes
