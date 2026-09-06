@@ -207,6 +207,11 @@ tools:
       Distinguir "não processou ainda" de "processou e falhou" muda completamente a
       resposta ao cliente e a decisão entre orientar e escalar.
 
+      `modelId` é o identificador do modelo, no formato `mdl_*` — não é a versão.
+      O campo `model_version` de getAnalysis (ex.: `3.2.1`) é a versão do modelo que
+      produziu aquele diagnóstico e **não** serve como `modelId`: usá-lo devolve 404.
+      O modelo de diagnóstico de vibração é `mdl_vib_v3`.
+
   # ---- Conhecimento ---------------------------------------------------------
 
   searchKnowledge:

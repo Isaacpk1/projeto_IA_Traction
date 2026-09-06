@@ -9,10 +9,16 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait
 
 from src.core.contracts.llm import LLMResponse, Message, Usage
 from src.core.contracts.tool import ToolCall, ToolDef
-from src.core.errors import UpstreamUnavailable
+from src.core.errors import ContractError, UpstreamUnavailable
 from src.core.ports.event_bus import RateLimiterPort
 
 __all__ = ["GeminiClient"]
+
+
+#: `finish_reason` em que o modelo respondeu mas quebrou o schema da tool — erro de
+#: contrato, não indisponibilidade do provedor. A distinção decide se a task volta
+#: para a fila (infra) ou é contabilizada (contract).
+_FINISH_DE_CONTRATO = frozenset({"MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"})
 
 
 def _nome(valor: Any) -> str:
@@ -151,11 +157,18 @@ class GeminiClient:
         finish = getattr(candidate, "finish_reason", None)
         content = getattr(candidate, "content", None)
         if content is None:
-            # Filtro de segurança, RECITATION ou MAX_TOKENS sem parte alguma. É falha
-            # do provedor, não do agente — classificar como `behavior` poluiria M1–M16
-            # com execuções em que o modelo sequer respondeu.
+            motivo = _nome(finish)
+            if motivo in _FINISH_DE_CONTRATO:
+                # O modelo respondeu, mas violou o schema da tool. É erro de contrato
+                # (RNF13), e é exatamente a taxa que o risco RS-02 do doc 12 manda
+                # vigiar: "tool calling do Gemini instável em cadeias longas".
+                raise ContractError(
+                    f"Gemini emitiu chamada de ferramenta inválida (finish_reason={motivo})"
+                )
+            # Filtro de segurança ou RECITATION: o provedor recusou e o agente sequer
+            # respondeu. Classificar como `behavior` poluiria M1–M16.
             raise UpstreamUnavailable(
-                f"Gemini devolveu candidato sem conteúdo (finish_reason={_nome(finish)})"
+                f"Gemini devolveu candidato sem conteúdo (finish_reason={motivo})"
             )
         texts: list[str] = []
         calls: list[ToolCall] = []

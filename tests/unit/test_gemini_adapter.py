@@ -8,7 +8,7 @@ import pytest
 
 from src.core.contracts.llm import Message
 from src.core.contracts.tool import ToolCall, ToolDef
-from src.core.errors import UpstreamUnavailable
+from src.core.errors import ContractError, UpstreamUnavailable
 from src.llm.gemini import GeminiClient
 
 genai = pytest.importorskip("google.genai")
@@ -139,3 +139,21 @@ async def test_candidato_com_parts_nulo_nao_estoura():
     assert r.message.content is None
     assert r.message.tool_calls == []
     assert r.finish_reason == "STOP"
+
+
+async def test_chamada_de_ferramenta_malformada_e_erro_de_contrato():
+    """RS-02 do doc 12 vigia a taxa de `contract` para instabilidade de tool calling.
+
+    Classificar isso como `infra` devolveria a task para a fila e o risco ficaria
+    invisível justamente na métrica criada para detectá-lo.
+    """
+    resposta = SimpleNamespace(
+        candidates=[SimpleNamespace(content=None, finish_reason="MALFORMED_FUNCTION_CALL")],
+        usage_metadata=None,
+        model_version="x",
+    )
+
+    with pytest.raises(ContractError, match="MALFORMED_FUNCTION_CALL"):
+        await _responde(None, resposta)
+
+    assert ContractError.error_class == "contract"
