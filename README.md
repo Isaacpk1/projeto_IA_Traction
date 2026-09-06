@@ -11,9 +11,10 @@ avaliação** que mede sua confiabilidade.
 > O mesmo worker que processa um ticket de cliente processa um caso da suíte, pelo mesmo caminho de
 > código (RF39) — é isso que garante que a avaliação mede o sistema real.
 
-> **Status em 06/09/2026.** O experimento está em execução com LLM real contra a API industrial.
+> **Status em 06/09/2026.** O experimento foi executado com LLM real contra a API industrial.
 > **E2 concluído** — 50 execuções, veredito escrito para H2 em [§6.3](#63-e2--segurança-h2).
-> **E1 em andamento** — 544 execuções, H1 sem veredito até o fim da rodada.
+> **E1 parcial** — 157 tentativas registradas (150 concluídas e 7 falhas de contrato) das 544
+> previstas; H1 permanece sem veredito final.
 > **E3 e E4 não executados**, com registro explícito em [§6.6](#66-e3-e-e4--registro-de-não-execução).
 > O juiz LLM não foi executado e nenhuma métrica de rubrica é reportada (L19).
 > Cronograma, estratégia de testes e plano de contingência em
@@ -25,9 +26,10 @@ durável, trace JSONL, fila SQLite com lease e retomada, guarda de isolamento, g
 pré-ação/pré-entrega, scorers M1–M16 com repositório versionado, intensidade de degradação, testes
 de hipótese (dose-resposta, Wilson, McNemar, não-inferioridade) e o runner CLI que amarra tudo.
 
-**Não implementado:** juiz LLM e meta-avaliação (L19), BFF, frontend e Compose. Ingestão de tickets
-e sessão multi-turno permanecem na arquitetura-alvo, não no código. A estrutura descrita abaixo
-inclui componentes planejados; §3 distingue o que executa hoje.
+**Não implementado:** juiz LLM e meta-avaliação (L19), BFF, console de atendimento e Compose.
+Ingestão de tickets e sessão multi-turno permanecem na arquitetura-alvo, não no código. O dashboard
+React de resultados e inspeção de traces está implementado. A estrutura descrita abaixo inclui
+componentes planejados; §3 distingue o que executa hoje.
 
 ---
 
@@ -279,8 +281,10 @@ uv run agentes dashboard --run-id e1_v1 --metrics artifacts/runs/e1_v1/metrics.d
   --e2-run-id e2_v1 --e2-metrics artifacts/runs/e2_v1/metrics.db --out artifacts/dashboard.html
 ```
 
-HTML autocontido: métricas por braço, curva dose-resposta, vereditos e o **explorador de
+Arquivo HTML único: métricas por braço, curva dose-resposta, vereditos e o **explorador de
 trajetórias** — o que cada agente chamou, concluiu e citou como evidência, execução a execução.
+O código-fonte do frontend está versionado em `src/interfaces/web/` (`index.html`, `app.css` e
+`app.js`); `src/interfaces/dashboard.py` apenas carrega esses assets e injeta os dados do relatório.
 
 #### Passo 7 — analisar em código
 
@@ -419,8 +423,8 @@ Detalhamento completo em [`docs/07-plano-experimental.md`](docs/07-plano-experim
 
 ## 6. Resultados
 
-> **Estado em 06/09/2026.** E2 concluído, com veredito para H2. E1 em execução — H1 sem
-> veredito até o fim da rodada. E3 e E4 não executados, com registro explícito em §6.5.
+> **Estado em 06/09/2026.** E2 concluído, com veredito para H2. E1 executado parcialmente — H1
+> sem veredito final. E3 e E4 não executados, com registro explícito em §6.6.
 
 ### 6.1 Configuração executada
 
@@ -439,13 +443,69 @@ configurações diferentes são distinguíveis sem depender de memória de quem 
 
 ### 6.2 E1 — arquitetura (H1)
 
-> ⏳ **Em execução.** 544 execuções: 17 casos × 2 arquiteturas × 8 seeds × 2 repetições.
+**136 execuções concluídas**, desenho reduzido e balanceado: 17 casos × 2 arquiteturas × 4 seeds
+× 1 repetição, 68 execuções por braço e 17 por seed em cada. A redução usa os cortes #6 e de
+repetições do plano de contingência; os 4 seeds preservam a amplitude de intensidade
+(0,129 → 0,522).
 
-O teste primário está implementado e verificado sobre dados sintéticos
-(`src/analysis/hypotheses.py`, `tests/unit/test_hypotheses.py`), aguardando os dados reais:
-regressão logística `M4 ~ intensidade * C(arm)`, em que **o coeficiente da interação é o teste
-de P1.1**. Interação positiva com IC fora do zero sustenta a predição; interação
-indistinguível de zero a refuta; interação negativa a refuta na direção oposta.
+#### Veredito — P1.1: INCONCLUSIVA
+
+| Teste | Estimativa | IC95 | p |
+| :--- | ---: | :---: | ---: |
+| **Interação** `intensidade × braço` — o teste pré-registrado | 2,161 | [−0,666 · 4,989] | 0,134 |
+| Efeito principal do braço multi | −0,947 | [−2,118 · 0,224] | 0,113 |
+| Diferença pareada por caso (17 casos, bootstrap) | −0,049 | [−0,206 · 0,103] | — |
+
+Os três intervalos cruzam o zero. **Não há diferença detectável entre mono e multi**, nem no nível
+nem na inclinação. Conforme declarado antes da execução, isso é reportado como **inconclusivo — não
+como evidência de ausência de efeito** (L2: 17 casos base dão pouco poder).
+
+#### Curva dose-resposta
+
+| Seed | Intensidade | Mono | Multi |
+| :--- | ---: | ---: | ---: |
+| `complete` | 0,129 | 0,529 | 0,412 |
+| `s10` | 0,318 | 0,353 | 0,353 |
+| `x1` | 0,428 | 0,412 | 0,312 |
+| `s13` | 0,522 | 0,353 | 0,312 |
+
+A mono fica à frente em três dos quatro níveis, mas as diferenças são pequenas e o intervalo da
+interação não exclui o zero.
+
+#### As outras predições de H1
+
+O veredito inconclusivo de P1.1 não esgota a hipótese. As demais predições foram declaradas antes
+da execução e são reportadas mesmo quando contrariam a expectativa:
+
+| Predição | O que previa | Medida | Resultado |
+| :--- | :--- | :--- | :--- |
+| **P1.2** | multi verifica mais pré-condições | M5a 0,350 → **0,625** | **Direção sustentada.** Mas M5b (verificar *antes* de concluir) empata em 0,075 nos dois braços |
+| **P1.3** | multi alucina **menos** evidência | M8 0,051 → **0,224** | **Refutada na direção oposta.** A multi alucina mais que o triplo |
+| **P1.4** | multi perde evidência no handoff | M14 = **0,408** | **Sustentada.** A multi perde 41 % da evidência entre investigação e resolução; a mono não tem essa etapa para perder |
+
+**O padrão que emerge.** A multi investiga melhor — trajetória mais precisa (M1 +0,131), mais
+pré-condições verificadas (M5a +0,275), mais lacunas declaradas (M9 +0,158). E decide igual ou
+pior: acerto de decisão −0,063, escalonamento apropriado −0,189.
+
+P1.4 explica a contradição aparente: **o ganho de investigação não sobrevive à fronteira do
+handoff.** É a predição que o doc 07 chamou de "a que torna H1 falseável de forma interessante —
+ela prevê um custo, não apenas um ganho". O custo apareceu; o ganho líquido, não.
+
+#### Custo e confiabilidade
+
+| | Mono | Multi |
+| :--- | ---: | ---: |
+| Execuções concluídas sem erro | 67/68 | 60/68 |
+| Erros de contrato (tool call malformada do Gemini) | **0** | **6** |
+| Chamadas de LLM por execução | 4,3 | **7,6** |
+| Tokens de entrada por execução | 23 784 | 21 933 |
+
+A multi custa 77 % mais chamadas para entregar decisão equivalente ou pior. Os 6 erros de contrato
+são todos do braço B: o risco **RS-02** do doc 12 — "tool calling do Gemini instável em cadeias
+longas" — materializou-se, e penaliza a multi por instabilidade do modelo, não por arquitetura
+(L27).
+
+---
 
 ### 6.3 E2 — segurança (H2)
 
@@ -619,6 +679,8 @@ condução do próprio experimento.
 | **L21** | **A rotulação humana cega não ocorreu**, e a pré-condição já está comprometida: agregados de M4 por braço foram observados durante a calibração de 06/09. Mesmo com tempo, a meta-avaliação não seria válida como desenhada |
 | **L22** | **O overlay não descreve parâmetros.** Ele enriquece a descrição da ferramenta, não a de seus argumentos. Isso tornou `getModel` inalcançável até 06/09 — o agente passava `model_version` como `modelId` e recebia 404 em todas as tentativas, afetando os 4 casos base que exigem essa ferramenta. Corrigido no texto da descrição; a lacuna estrutural permanece |
 | **L23** | **Resultados de calibração foram descartados, não incorporados.** As rodadas com prompt `1.0.0` e com seeds `s1..s7` expuseram os defeitos acima e não entram na análise. São distinguíveis pelo `prompt_version` no trace, mas representam cota consumida sem resultado |
+| **L27** | **Os erros de contrato são assimétricos entre braços.** Seis das 136 execuções falharam com tool call malformada do Gemini, todas no braço multi. Isso reduz o n efetivo da multi e a penaliza por instabilidade do modelo, não por arquitetura — o risco RS-02 do doc 12, agora observado |
+| **L28** | **E1 rodou com desenho reduzido.** 4 seeds e 1 repetição em vez de 8 e 2, por restrição de prazo e cota — 136 execuções contra as 544 planejadas. As métricas de estabilidade M12 e M13 ficam sem base, e o poder estatístico é menor que o desenhado |
 | **L24** | **A citação de evidência tem contrato subespecificado.** O prompt exige `tool`, `field`, `value` e `step`, mas nunca fixa a sintaxe do caminho nem a partir de qual raiz ele é contado. Mesmo após a correção, 72,6 % das referências não resolvem — parte é o agente errando, parte é ambiguidade do contrato, e os dois não estão separados |
 | **L25** | **No braço multi, o índice do passo é inalcançável.** Cada papel conta passos no seu próprio loop, enquanto o trace numera globalmente entre papéis. O agente não tem como acertar `step`, e M6 penaliza o braço B por um motivo que não é arquitetura |
 | **L26** | **As métricas de evidência mudaram de valor após o reprocessamento.** M6, M5b e M8 medidos antes de 06/09 não são comparáveis com os de depois. A correção está versionada e os traces preservados, mas nenhuma análise reporta as duas séries lado a lado |
