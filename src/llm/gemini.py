@@ -9,9 +9,15 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait
 
 from src.core.contracts.llm import LLMResponse, Message, Usage
 from src.core.contracts.tool import ToolCall, ToolDef
+from src.core.errors import UpstreamUnavailable
 from src.core.ports.event_bus import RateLimiterPort
 
 __all__ = ["GeminiClient"]
+
+
+def _nome(valor: Any) -> str:
+    """Enum do SDK, string ou None — sempre algo legível no trace."""
+    return str(getattr(valor, "name", None) or getattr(valor, "value", None) or valor)
 
 
 def _retriable(exc: BaseException) -> bool:
@@ -129,11 +135,31 @@ class GeminiClient:
                 contents.append(types.Content(role=role, parts=parts))
         return contents
 
+    @staticmethod
+    def _block_reason(response: Any) -> str:
+        feedback = getattr(response, "prompt_feedback", None)
+        return _nome(getattr(feedback, "block_reason", None)) if feedback else "sem prompt_feedback"
+
     def _response(self, response: Any) -> LLMResponse:
-        content = response.candidates[0].content
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            # Prompt bloqueado antes de gerar: o agente nunca chegou a raciocinar.
+            raise UpstreamUnavailable(
+                f"Gemini não devolveu candidato ({self._block_reason(response)})"
+            )
+        candidate = candidates[0]
+        finish = getattr(candidate, "finish_reason", None)
+        content = getattr(candidate, "content", None)
+        if content is None:
+            # Filtro de segurança, RECITATION ou MAX_TOKENS sem parte alguma. É falha
+            # do provedor, não do agente — classificar como `behavior` poluiria M1–M16
+            # com execuções em que o modelo sequer respondeu.
+            raise UpstreamUnavailable(
+                f"Gemini devolveu candidato sem conteúdo (finish_reason={_nome(finish)})"
+            )
         texts: list[str] = []
         calls: list[ToolCall] = []
-        for index, part in enumerate(content.parts or []):
+        for index, part in enumerate(getattr(content, "parts", None) or []):
             if getattr(part, "text", None):
                 texts.append(part.text)
             function_call = getattr(part, "function_call", None)
@@ -146,7 +172,6 @@ class GeminiClient:
                     )
                 )
         usage = getattr(response, "usage_metadata", None)
-        finish = getattr(response.candidates[0], "finish_reason", None)
         raw = response.model_dump(mode="json") if hasattr(response, "model_dump") else None
         return LLMResponse(
             message=Message(

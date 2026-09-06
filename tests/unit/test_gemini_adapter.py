@@ -8,6 +8,7 @@ import pytest
 
 from src.core.contracts.llm import Message
 from src.core.contracts.tool import ToolCall, ToolDef
+from src.core.errors import UpstreamUnavailable
 from src.llm.gemini import GeminiClient
 
 genai = pytest.importorskip("google.genai")
@@ -76,3 +77,65 @@ async def test_converte_historico_tools_config_e_resposta_sem_chamar_a_rede():
     assert response.model_version == "test-version"
     assert limiter.acquired == ["google-ai-studio"]
     assert limiter.consumed == ["google-ai-studio"]
+
+
+async def _responde(monkeypatch, resposta):
+    client = GeminiClient(client=_Client(resposta))
+    return await client.chat([Message(role="user", content="oi")])
+
+
+class _Client:
+    def __init__(self, resposta):
+        self.aio = SimpleNamespace(models=_ModelsFixos(resposta))
+
+
+class _ModelsFixos:
+    def __init__(self, resposta):
+        self.resposta = resposta
+
+    async def generate_content(self, **kwargs):
+        return self.resposta
+
+
+async def test_candidato_sem_conteudo_e_falha_de_infra_nao_de_comportamento():
+    """Filtro de segurança do provedor não pode virar erro de raciocínio do agente.
+
+    Classificar como `behavior` poluiria M1–M16 com execuções em que o modelo
+    sequer respondeu — o roadmap proíbe isso explicitamente.
+    """
+    resposta = SimpleNamespace(
+        candidates=[SimpleNamespace(content=None, finish_reason="SAFETY")],
+        usage_metadata=None,
+        model_version="x",
+    )
+
+    with pytest.raises(UpstreamUnavailable, match="SAFETY"):
+        await _responde(None, resposta)
+
+    assert UpstreamUnavailable.error_class == "infra"
+
+
+async def test_resposta_sem_candidato_algum_e_infra():
+    resposta = SimpleNamespace(
+        candidates=[],
+        prompt_feedback=SimpleNamespace(block_reason="PROHIBITED_CONTENT"),
+        usage_metadata=None,
+    )
+
+    with pytest.raises(UpstreamUnavailable, match="PROHIBITED_CONTENT"):
+        await _responde(None, resposta)
+
+
+async def test_candidato_com_parts_nulo_nao_estoura():
+    """`parts=None` com conteúdo presente é resposta vazia legítima, não crash."""
+    resposta = SimpleNamespace(
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=None), finish_reason="STOP")],
+        usage_metadata=None,
+        model_version="x",
+    )
+
+    r = await _responde(None, resposta)
+
+    assert r.message.content is None
+    assert r.message.tool_calls == []
+    assert r.finish_reason == "STOP"
