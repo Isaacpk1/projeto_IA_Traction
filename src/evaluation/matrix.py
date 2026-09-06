@@ -33,7 +33,23 @@ __all__ = [
 
 #: Uma âncora sem degradação e sete níveis distintos — doc 07 §3.1. Os seeds são
 #: níveis de uma variável de degradação, não repetições disfarçadas.
-E1_SEEDS: tuple[str, ...] = ("complete", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+#:
+#: **Estes sete não são arbitrários.** O documento exige, como pré-requisito de
+#: validação, medir a intensidade de cada seed candidato sobre o conjunto fixo de
+#: recursos do golden e escolher os que **cobrem o espectro**. Uma primeira versão
+#: usava `s1..s7` por conveniência; medidos, ficavam todos entre 0,296 e 0,372 —
+#: faixa de 0,08, o que colapsaria a dose-resposta num contraste binário entre
+#: `complete` e o resto, justamente o que o desenho existe para superar.
+#:
+#: Os valores abaixo são a intensidade média medida contra a API industrial
+#: (`agentes intensity`), e cobrem de 0,13 a 0,52 — cinco vezes mais amplitude:
+#:
+#:   complete 0,129 · seed1 0,233 · s9 0,270 · s10 0,318
+#:   zz 0,388 · x1 0,428 · x2 0,465 · s13 0,522
+#:
+#: As strings são só entrada de hash da API; o que importa é a intensidade que
+#: cada uma produz. Trocar esta tupla obriga a recomputar `degradation_intensity.json`.
+E1_SEEDS: tuple[str, ...] = ("complete", "seed1", "s9", "s10", "zz", "x1", "x2", "s13")
 
 E1_REPETITIONS = 2
 E1_ARCHITECTURES: tuple[Architecture, ...] = ("mono", "multi")

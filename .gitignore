@@ -29,6 +29,16 @@ artifacts/quota.db-shm
 artifacts/traces/dev_*/
 artifacts/runs/dev_*/
 
+# Estado transitorio do SQLite e log do runner: nunca sao resultado.
+artifacts/**/*.db-wal
+artifacts/**/*.db-shm
+artifacts/**/runner.log
+
+# Rodada em andamento. Os artefatos de uma rodada CONCLUIDA que entra no
+# relatorio sao adicionados de proposito com `git add -f`, depois que ela termina.
+artifacts/traces/
+artifacts/runs/
+
 # Frontend
 node_modules/
 frontend/dist/

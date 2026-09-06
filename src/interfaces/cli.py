@@ -32,8 +32,13 @@ from src.core.contracts.task import Task
 from src.core.errors import ContractError
 from src.core.ports.architecture import Architecture as ArchitecturePort
 from src.core.ports.llm import LLMClient
+from src.evaluation.degradation import (
+    IntensityTable,
+    intensidade,
+    salvar_intensidade,
+)
 from src.evaluation.golden.loader import GoldenDataset, load_golden_dataset
-from src.evaluation.matrix import E2_POLICIES, plan_core, plan_e1, plan_e2
+from src.evaluation.matrix import E1_SEEDS, E2_POLICIES, plan_core, plan_e1, plan_e2
 from src.evaluation.runner.queue_sqlite import SQLiteWorkQueue
 from src.evaluation.runner.rate_limiter import LocalRateLimiter
 from src.evaluation.runner.worker import Worker
@@ -58,6 +63,10 @@ DEFAULT_QUEUE = RAIZ / "artifacts" / "queue.db"
 DEFAULT_METRICS = RAIZ / "artifacts" / "metrics.db"
 DEFAULT_TRACES = RAIZ / "artifacts" / "traces"
 DEFAULT_QUOTA = RAIZ / "artifacts" / "quota.db"
+DEFAULT_INTENSITY = RAIZ / "src" / "evaluation" / "golden" / "degradation_intensity.json"
+
+#: Único modelo de diagnóstico da API; não há endpoint que os liste.
+MODELO_DE_VIBRACAO = "mdl_vib_v3"
 
 
 #: Valor que `.env.example` traz. Deixá-lo passar produz um erro de autenticação
@@ -162,6 +171,84 @@ def plan(
     repetidas = len(tasks) - inseridas
     typer.echo(f"planejadas {len(tasks)} · novas {inseridas} · já existentes {repetidas}")
     typer.echo(f"fila em {db} · {counts}")
+
+
+# ---------------------------------------------------------------------------
+# intensity
+# ---------------------------------------------------------------------------
+async def _sondar(provider: ApiToolProvider, golden, seed: str) -> list[str]:
+    """Observa o modo de cada recurso relevante do caso sob um seed.
+
+    Usa `degradation_probes` — o conjunto fixo declarado no golden — e nunca as
+    tools que o agente chamou. É o que mantém a variável exógena.
+    """
+    provider.default_user_id = golden.user_id
+    provider.default_seed = seed
+    modos: list[str] = []
+    analysis_id: str | None = None
+    for passo in golden.degradation_probes:
+        argumentos = _args_da_probe(passo.tool, golden, analysis_id)
+        if argumentos is None:
+            continue
+        resultado = await provider.call(passo.tool, argumentos, call_id=passo.tool, seed=seed)
+        payload = resultado.data or {}
+        if not resultado.ok:
+            # Recurso que não responde é ausência de evidência, por definição.
+            modos.append("unavailable")
+            continue
+        modos.append(str(payload.get("mode", "complete")))
+        if passo.tool == "listAnalyses" and analysis_id is None:
+            analises = (payload.get("data") or {}).get("analyses") or []
+            if analises:
+                analysis_id = analises[0].get("id")
+    return modos
+
+
+def _args_da_probe(tool: str, golden, analysis_id: str | None) -> dict | None:
+    if tool in {"getAsset", "listAnalyses", "getBaseline", "getRmsSeries",
+                "getSpectrum", "getDataQuality"}:
+        return {"assetId": golden.asset_id}
+    if tool == "getAnalysis":
+        return {"analysisId": analysis_id} if analysis_id else None
+    if tool == "getModel":
+        return {"modelId": MODELO_DE_VIBRACAO}
+    if tool == "searchKnowledge":
+        return {"q": golden.root_question or golden.message[:60]}
+    return None
+
+
+@app.command()
+def intensity(
+    out: Annotated[Path, typer.Option(help="Tabela versionada de saída.")] = DEFAULT_INTENSITY,
+    api_url: Annotated[str, typer.Option(help="API industrial.")] = "http://127.0.0.1:8000",
+) -> None:
+    """Calcula a intensidade de degradação de cada par caso-seed — doc 07 §3.1.
+
+    Não gasta cota de LLM: só conversa com a API local. Pode rodar com o
+    experimento em andamento, porque não toca em nada que o agente use.
+    """
+    total = asyncio.run(_medir_intensidade(out=out, api_url=api_url))
+    typer.echo(f"{total} pares caso-seed gravados em {out}")
+
+
+async def _medir_intensidade(*, out: Path, api_url: str) -> int:
+    dataset = _dataset()
+    registry, overlay = build_registry(MATERIAL / "api-contract.openapi.yaml")
+    tabela: IntensityTable = {}
+    detalhe: dict[tuple[str, str], list[str]] = {}
+    async with HttpExecutor(api_url) as executor:
+        provider = ApiToolProvider(registry, executor, overlay=overlay)
+        for golden in dataset.base_cases():
+            if not golden.degradation_probes:
+                continue
+            for seed in E1_SEEDS:
+                modos = await _sondar(provider, golden, seed)
+                if not modos:
+                    continue
+                chave = (golden.case_id, seed)
+                tabela[chave] = intensidade(modos)
+                detalhe[chave] = modos
+    return salvar_intensidade(out, tabela, detalhe=detalhe)
 
 
 # ---------------------------------------------------------------------------
