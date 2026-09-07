@@ -1,0 +1,52 @@
+<title>Agentes Industriais — Entregas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@700&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+:root{--ground:#F1F4F4;--surface:#FFF;--ink:#0F191C;--ink-2:#3D4B4E;--ink-3:#6C7A7C;
+  --rule:#D3DBDA;--accent:#0A6E6E}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#0C1315;--surface:#131E20;
+  --ink:#E4EDEB;--ink-2:#A9B8B7;--ink-3:#78888A;--rule:#25373A;--accent:#4FB0A8}}
+:root[data-theme="dark"]{--ground:#0C1315;--surface:#131E20;--ink:#E4EDEB;--ink-2:#A9B8B7;
+  --ink-3:#78888A;--rule:#25373A;--accent:#4FB0A8}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);margin:0;font-family:"IBM Plex Sans",system-ui,sans-serif;
+  line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:72px 24px 80px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:clamp(34px,6vw,54px);font-weight:700;
+  letter-spacing:-.02em;line-height:1.05;margin:12px 0 18px}
+p{color:var(--ink-2);max-width:62ch;margin:0 0 16px}
+.cards{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);margin-top:34px}
+a.card{display:block;background:var(--surface);padding:24px 26px;text-decoration:none;color:inherit}
+a.card:hover,a.card:focus-visible{background:var(--ground);outline:none}
+a.card h2{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:23px;margin:0 0 6px;color:var(--accent)}
+a.card p{margin:0;font-size:15px}
+.meta{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3);margin-top:36px;
+  padding-top:18px;border-top:1px solid var(--rule)}
+</style>
+<div class="wrap">
+  <div class="eyebrow">Inteli × TRACTIAN</div>
+  <h1>Engenharia e avaliação de agentes industriais</h1>
+  <p>Um agente com 18 ferramentas contra um orquestrador com três especialistas, nos mesmos
+  chamados de manutenção preditiva, sob os mesmos níveis de degradação de evidência.</p>
+  <p>186 execuções com LLM real, 4 hipóteses pré-registradas, 16 métricas determinísticas e 29
+  limitações declaradas.</p>
+  <div class="cards">
+    <a class="card" href="apresentacao/">
+      <h2>Apresentação →</h2>
+      <p>Quinze slides: desenho, vereditos de H1 e H2, os três defeitos que o arnês encontrou e o
+      que isso significa para quem vai pôr multi-agente em produção.</p>
+    </a>
+    <a class="card" href="relatorio/">
+      <h2>Relatório interativo →</h2>
+      <p>Métricas por braço, curva dose-resposta, vereditos e o explorador de trajetórias: o que
+      cada agente chamou, concluiu e citou como evidência, execução a execução.</p>
+    </a>
+    <a class="card" href="https://github.com/Isaacpk1/projeto_IA_Traction#readme">
+      <h2>README e documentação →</h2>
+      <p>Resultados completos, metodologia, limitações e os 14 documentos de projeto.</p>
+    </a>
+  </div>
+  <p class="meta">Gerado a partir dos traces JSONL e do SQLite de métricas. A camada de análise não
+  exige chave de API — quem tem os artefatos reproduz os resultados.</p>
+</div>
