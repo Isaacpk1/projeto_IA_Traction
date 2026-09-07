@@ -1,0 +1,236 @@
+<title>Roteiro de Gravação</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--ground:#F1F4F4;--surface:#FFF;--sunken:#E7ECEB;--ink:#0F191C;--ink-2:#3D4B4E;
+  --ink-3:#6C7A7C;--rule:#D3DBDA;--accent:#0A6E6E;--accent-soft:#DCEAE8;--tela:#7B4FA5;
+  --ok:#2E7D57;--no:#B3402F;--warn:#9A6B1F}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#0C1315;--surface:#131E20;
+  --sunken:#0A1113;--ink:#E4EDEB;--ink-2:#A9B8B7;--ink-3:#78888A;--rule:#25373A;
+  --accent:#4FB0A8;--accent-soft:#152B2C;--tela:#B99AD9;--ok:#5CB98A;--no:#E1705C;--warn:#D6A44A}}
+:root[data-theme="dark"]{--ground:#0C1315;--surface:#131E20;--sunken:#0A1113;--ink:#E4EDEB;
+  --ink-2:#A9B8B7;--ink-3:#78888A;--rule:#25373A;--accent:#4FB0A8;--accent-soft:#152B2C;
+  --tela:#B99AD9;--ok:#5CB98A;--no:#E1705C;--warn:#D6A44A}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);margin:0;
+  font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:17px;line-height:1.6;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:44px 24px 90px}
+h1{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:clamp(32px,5.5vw,50px);font-weight:700;
+  letter-spacing:-.02em;line-height:1.05;margin:10px 0 14px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--accent);font-weight:600}
+.lede{font-size:18px;color:var(--ink-2);max-width:62ch}
+.meta{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-3);margin-top:14px;
+  padding-top:14px;border-top:1px solid var(--rule)}
+.bloco{background:var(--surface);border:1px solid var(--rule);border-radius:5px;margin-top:26px;
+  overflow:hidden}
+.bloco>header{display:flex;align-items:baseline;gap:12px;padding:14px 20px;
+  border-bottom:1px solid var(--rule);background:var(--sunken);flex-wrap:wrap}
+.bloco h2{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:20px;font-weight:700;margin:0}
+.t{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--accent);
+  background:var(--accent-soft);padding:3px 9px;border-radius:3px;white-space:nowrap}
+.dur{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3)}
+.corpo{padding:18px 20px}
+.tela{display:flex;gap:10px;align-items:flex-start;background:var(--ground);
+  border-left:3px solid var(--tela);padding:11px 14px;border-radius:0 3px 3px 0;margin-bottom:15px}
+.tela b{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tela);white-space:nowrap;padding-top:3px}
+.tela span{color:var(--ink-2);font-size:15px}
+.fala{font-size:17.5px;line-height:1.62}
+.fala p{margin:0 0 13px;max-width:64ch}
+.fala p:last-child{margin-bottom:0}
+.fala b{color:var(--ink);font-weight:600}
+.nota{margin-top:14px;font-size:14px;color:var(--ink-3);border-top:1px dashed var(--rule);
+  padding-top:11px}
+.nota b{color:var(--warn)}
+code,.mono{font-family:"IBM Plex Mono",monospace;font-size:.9em}
+table{border-collapse:collapse;width:100%;margin-top:12px;font-size:14.5px}
+th,td{padding:7px 12px;text-align:left;border-bottom:1px solid var(--rule)}
+th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600}
+td.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.aviso{border:1px solid var(--rule);border-left:3px solid var(--no);border-radius:0 4px 4px 0;
+  padding:14px 18px;margin-top:26px;background:var(--surface)}
+.aviso h3{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:17px;margin:0 0 8px}
+.aviso p{margin:0 0 9px;color:var(--ink-2);font-size:15.5px;max-width:none}
+.aviso p:last-child{margin:0}
+ul{margin:10px 0 0;padding-left:20px}
+li{margin-bottom:7px;color:var(--ink-2);font-size:15.5px}
+@media (max-width:640px){.wrap{padding:28px 15px 60px}.tela{flex-direction:column;gap:4px}}
+</style>
+<div class="wrap">
+  <div class="eyebrow">Inteli × TRACTIAN · vídeo de entrega</div>
+  <h1>Roteiro de gravação</h1>
+  <p class="lede">Nove minutos. A ordem importa: o problema antes da solução, a demonstração antes
+  do número, e a limitação antes de alguém perguntar.</p>
+  <div class="meta">🟪 o que aparece na tela · texto grande = o que você fala · ⚠️ = cuidado ao gravar</div>
+
+  <section class="bloco">
+    <header><span class="t">0:00</span><h2>O problema</h2><span class="dur">45 s</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Você falando. Sem slide ainda.</span></div>
+      <div class="fala">
+        <p>Um analista da TRACTIAN abre um chamado e vê: <b>desbalanceamento, confiança 87%</b>.
+        Parece conclusivo.</p>
+        <p>Mas o baseline daquele ativo foi invalidado por uma intervenção de manutenção. E o
+        limiar de alarme <b>deriva do baseline</b>. Ou seja: o diagnóstico está apoiado numa
+        referência que não vale mais.</p>
+        <p>Quem confirma, age errado numa máquina crítica. Quem verifica a pré-condição, escala.
+        <b>Esse é o erro que custa caro — e não é errar o diagnóstico, é confirmá-lo sem checar.</b></p>
+      </div>
+      <div class="nota">Comece pelo domínio, não pela tecnologia. Quem assiste precisa entender
+      por que o problema é difícil antes de ver a solução.</div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">0:45</span><h2>A pergunta</h2><span class="dur">45 s</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Slide 3 do deck — a hipótese H1</span></div>
+      <div class="fala">
+        <p>A pergunta do projeto: <b>um agente com todas as ferramentas, ou um orquestrador com
+        especialistas?</b></p>
+        <p>A hipótese previa as duas coisas — que a especialização melhoraria a investigação,
+        <b>mas custaria informação na fronteira entre os agentes</b>. Ela prevê um ganho e um custo.
+        É isso que a torna testável de verdade.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">1:30</span><h2>O que foi construído</h2><span class="dur">90 s</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Slide 4 e 5 do deck — arnês e desenho experimental</span></div>
+      <div class="fala">
+        <p>O que eu construí não foi um agente. Foi um <b>arnês de avaliação</b>.</p>
+        <p>Dezoito ferramentas geradas do contrato OpenAPI real. Dezesseis métricas determinísticas
+        calculadas sobre o trace persistido. Duzentos e trinta testes. Cinco contratos de camada
+        verificados automaticamente.</p>
+        <p>E um princípio que se pagou o dia inteiro: <b>o trace é o contrato</b>. A camada de
+        análise não importa SDK de LLM nem exige chave de API. Isso permitiu recalcular todas as
+        métricas depois de corrigir um scorer, <b>sem gastar uma única chamada</b>.</p>
+        <p>O desenho é de ablação: uma variável por vez, tudo o mais fixo. Cento e trinta e seis
+        execuções para a arquitetura, cinquenta para a segurança.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">3:00</span><h2>Demonstração — a plataforma</h2><span class="dur">2 min</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>localhost:5173 · rodada <span class="mono">console4</span>.
+      Grave com o BFF já no ar.</span></div>
+      <div class="fala">
+        <p>Esta é a plataforma. Dezessete chamados reais, atendidos pelo agente.</p>
+        <p><b>Doze foram resolvidos sem humano nenhum.</b> Cinco caíram na triagem.</p>
+        <p>E a triagem não diz só <i>que</i> precisa de humano — diz <b>por quê</b>. Cada cartão
+        mostra o motivo, o que o agente já verificou para você não repetir trabalho, as lacunas que
+        ele mesmo declarou, e o que resta decidir.</p>
+        <p>Tudo isso é derivado do trace. <b>Nenhum texto aqui foi gerado por modelo.</b> Se a razão
+        não estiver nos dados persistidos, ela não aparece — é o que mantém a triagem auditável.</p>
+      </div>
+      <div class="nota"><b>Mostre nesta ordem:</b> Visão geral → Triagem (abra um cartão) → clique
+      em “ver trajetória completa” → mostre a evidência marcada <span class="mono">resolve</span> /
+      <span class="mono">não resolve</span>. É o momento mais forte da demo.</div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">5:00</span><h2>Os resultados</h2><span class="dur">2 min</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Slides 6 a 10 do deck</span></div>
+      <div class="fala">
+        <p><b>H2 primeiro, porque tem veredito limpo.</b> A pergunta era: basta pedir no prompt para
+        o agente não agir errado, ou precisa de uma trava no código?</p>
+        <p>Pedir não basta. Em seis de dez oportunidades ele tentou a ação insegura, com intervalo
+        de confiança que não encosta no zero. E o achado é mais fino que isso: <b>os dois braços
+        tentam na mesma proporção</b>. A trava não deixa o agente mais prudente — deixa a
+        imprudência inconsequente.</p>
+        <p><b>H1 deu inconclusiva.</b> Os três testes cruzam o zero. Mono e multi não se distinguem.</p>
+        <p>Mas o resultado interessante não é esse. A multi <b>investiga melhor</b> — quase o dobro
+        de pré-condições verificadas. E <b>decide igual ou pior</b>. A explicação está numa métrica:
+        <b>ela perde 41% da evidência na fronteira do handoff</b>.</p>
+        <p>Isso era a predição P1.4, escrita antes de qualquer execução. O ganho apareceu. O custo
+        também. O saldo líquido, não.</p>
+      </div>
+      <div class="nota"><b>Não pule a P1.3.</b> Ela previu que a multi alucinaria menos e o
+      resultado foi o oposto — a multi alucina o triplo. Reportar a predição refutada com o mesmo
+      destaque é o que separa método de torcida.</div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">7:00</span><h2>O que o arnês encontrou</h2><span class="dur">90 s</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Slide 12 do deck — os defeitos</span></div>
+      <div class="fala">
+        <p>Esta é, para mim, a parte mais forte do trabalho.</p>
+        <p>O arnês encontrou <b>quatro defeitos que nenhum teste unitário pegaria</b>:</p>
+      </div>
+      <table>
+        <thead><tr><th>Defeito</th><th>Alcance</th></tr></thead>
+        <tbody>
+          <tr><td>Uma ferramenta era inalcançável — não havia caminho na API para descobrir o id</td>
+            <td>4 dos 17 casos com trajetória impossível</td></tr>
+          <tr><td>Falha de <i>tool call</i> classificada como infraestrutura</td>
+            <td>o risco ficava invisível na métrica criada para vê-lo</td></tr>
+          <tr><td>Evidência recusada por diferença de camada entre o que o agente vê e o que o trace guarda</td>
+            <td>94% das entregas bloqueadas — o produto escalava tudo</td></tr>
+          <tr><td>O guardrail lia a permissão no caminho errado</td>
+            <td><b>nenhuma ação podia ser autorizada, nunca</b></td></tr>
+        </tbody>
+      </table>
+      <div class="fala" style="margin-top:14px">
+        <p>Nenhum foi achado por teste. Todos por <b>ler um trace e perguntar por que uma métrica
+        estava zerada</b>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="bloco">
+    <header><span class="t">8:30</span><h2>Limitações e fechamento</h2><span class="dur">60 s</span></header>
+    <div class="corpo">
+      <div class="tela"><b>tela</b><span>Slides 13 e 15 do deck</span></div>
+      <div class="fala">
+        <p>Vinte e nove limitações declaradas — quinze antes de rodar, catorze descobertas durante,
+        <b>incluindo as que expõem erro meu de condução</b>.</p>
+        <p>A maior: o agente ainda não escolhe agir. O gabarito espera ação em seis casos e ele
+        entregou zero. Eu testei a hipótese óbvia — que a trava era dura demais —, corrigi o bug do
+        guardrail, medi de novo, <b>e o número não mudou</b>. Então a causa não é o gateway; é a
+        disposição do modelo. Isso fica aberto e declarado.</p>
+        <p>E o fechamento: <b>o resultado é inconclusivo, o método não é.</b> Refutar a hipótese com
+        método sólido era, desde o início, desfecho tão válido quanto confirmá-la.</p>
+        <p>O que este trabalho entrega não é a resposta “multi é melhor”. É um arnês capaz de
+        <b>medir a diferença, encontrar os defeitos que a distorcem, e dizer quando não sabe</b>.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="aviso">
+    <h3>Antes de gravar</h3>
+    <p><b>Suba os dois serviços e confira.</b> A API industrial em <span class="mono">:8000</span>,
+    o BFF em <span class="mono">:8010</span>, o front em <span class="mono">:5173</span>. Abra a
+    plataforma uma vez e navegue pelas quatro visões antes de ligar a gravação.</p>
+    <p><b>Deixe a rodada <span class="mono">console4</span> selecionada.</b> É a mais recente e a
+    única que reflete todas as correções.</p>
+    <p><b>Não invente número na hora.</b> Se esquecer um, diga “está no relatório” e siga — inventar
+    um número numa apresentação de método é o único erro que não tem desculpa.</p>
+  </div>
+
+  <div class="aviso" style="border-left-color:var(--ok)">
+    <h3>Se perguntarem…</h3>
+    <ul>
+      <li><b>“Então não deu em nada?”</b> — Deu em quatro defeitos encontrados e dois vereditos
+      escritos. Refutar com método é resultado; o plano dizia isso antes de existir dado.</li>
+      <li><b>“Por que só 53% de acerto?”</b> — Porque o agente acerta o diagnóstico e erra a
+      disposição de concluir. A decomposição está no relatório, caso a caso.</li>
+      <li><b>“Cadê o juiz LLM?”</b> — Não foi executado, e por isso nenhuma métrica de rubrica é
+      reportada. Métrica de rubrica sem meta-avaliação tem erro desconhecido — reportá-la com
+      ressalva seria pior que não reportar.</li>
+      <li><b>“Por que só 17 casos?”</b> — É o material fornecido. A limitação de poder estatístico
+      está declarada como L2, desde antes de rodar.</li>
+    </ul>
+  </div>
+</div>
