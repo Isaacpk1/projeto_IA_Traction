@@ -31,7 +31,7 @@ from src.core.ports.trace_sink import TraceSink
 
 __all__ = ["MultiArchitecture", "MULTI_PROMPT_VERSION"]
 
-MULTI_PROMPT_VERSION = "1.3.0"
+MULTI_PROMPT_VERSION = "1.4.0"
 
 CONTEXT_REPORT_TOOL = report_tool(
     "submit_context_report", ContextReport, "Submete o relatório tipado de contexto."

@@ -39,7 +39,7 @@ E1_SEEDS_ANALISE = ("complete", "s10", "x1", "s13")
 #: Rodadas de calibração e pilotos ficam fora da plataforma. Elas existem no disco
 #: para auditoria, mas oferecê-las no seletor convida a ler resultado de configuração
 #: que já foi descartada.
-RODADAS_VISIVEIS = ("console2", "console", "e1_v1", "e2_v1")
+RODADAS_VISIVEIS = ("console3", "console2", "console", "e1_v1", "e2_v1")
 
 
 class TicketNovo(BaseModel):
