@@ -16,8 +16,10 @@ __all__ = ["escrever_dashboard", "render_dashboard"]
 
 _WEB_PACKAGE = "src.interfaces.web"
 
-_AVISO = """<div class="note caveat"><p><b>Rodada incompleta.</b> {feitas} de {alvo} execuções
-registradas. Os números abaixo são parciais e não constituem o veredito final.</p></div>"""
+_AVISO = (
+    "Rodada incompleta. {feitas} de {alvo} execuções\nregistradas — os números são "
+    "parciais e não constituem o veredito final."
+)
 
 
 @lru_cache(maxsize=1)

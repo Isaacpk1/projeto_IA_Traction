@@ -347,6 +347,10 @@ def dashboard(
     alvo: Annotated[
         int | None, typer.Option(help="Total previsto; marca a rodada como parcial.")
     ] = None,
+    data_out: Annotated[
+        Path | None,
+        typer.Option(help="Grava os dados como JSON para o front em modo de desenvolvimento."),
+    ] = None,
 ) -> None:
     """Gera o relatório visual do experimento a partir dos artefatos persistidos.
 
@@ -392,6 +396,16 @@ def dashboard(
     )
     destino = escrever_dashboard(out, html)
     typer.echo(f"{relatorio['execucoes']} execuções · relatório em {destino}")
+
+    if data_out is not None:
+        # O front em modo dev importa os mesmos dados que o HTML estático embute,
+        # para que `npm run dev` e o artefato publicado nunca divirjam.
+        data_out.mkdir(parents=True, exist_ok=True)
+        for nome, conteudo in (("relatorio.json", relatorio), ("execucoes.json", execucoes)):
+            (data_out / nome).write_text(
+                json.dumps(conteudo, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
+        typer.echo(f"dados do front em {data_out}")
 
 
 # ---------------------------------------------------------------------------

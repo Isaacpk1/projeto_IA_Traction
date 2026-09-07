@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Gerados por `npm run dados` a partir dos traces — nao sao fonte.
+src/data/

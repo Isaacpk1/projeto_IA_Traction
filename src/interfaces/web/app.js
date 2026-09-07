@@ -1,283 +1,258 @@
+/**
+ * Plataforma de agentes industriais — casca da aplicação.
+ *
+ * Duas fontes de dados, uma interface: quando a API está no ar, a plataforma
+ * consulta o BFF; quando o arquivo é servido estático, lê os dados embutidos.
+ * O componente não sabe a diferença — é o que permite o mesmo código rodar em
+ * `npm run dev`, no GitHub Pages e no artefato publicado sem divergir.
+ */
 const { useState, useMemo, useCallback, useEffect, createElement: h, Fragment } = React;
-const R = window.__RELATORIO__, E = window.__EXECUCOES__ || [];
+
+const API = (() => {
+  const meta = typeof window !== "undefined" ? window.__API_BASE__ : null;
+  if (meta) return meta.replace(/\/$/, "");
+  if (typeof location !== "undefined" && location.port === "5173") return "http://127.0.0.1:8010";
+  return null;
+})();
+const TEM_API = Boolean(API);
 
 const fmt = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(d);
 const pct = (v) => (v === null || v === undefined) ? "—" : (v * 100).toFixed(0) + "%";
-const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const num = (v) => (v === null || v === undefined) ? "—" : Math.round(v).toLocaleString("pt-BR");
 
 const STATUS = {
   sustentada: ["ok", "Sustentada"], refutada: ["no", "Refutada"],
   refutada_direcao_oposta: ["no", "Refutada na direção oposta"],
   inconclusiva: ["unk", "Inconclusiva"], nao_executada: ["unk", "Não executada"],
+  done: ["ok", "concluído"], pending: ["warn", "na fila"], leased: ["warn", "executando"],
+  failed: ["no", "falhou"], pass: ["ok", "passou"], blocked: ["no", "bloqueado"],
 };
 const Pill = ({ status }) => {
-  const [cls, rot] = STATUS[status] || ["unk", status];
-  return h("span", { className: "pill " + cls }, h("i", { className: "dot" }), rot);
+  const [cls, rot] = STATUS[status] || ["unk", status || "—"];
+  return h("span", { className: "pill " + cls }, h("i", null), rot);
 };
-const SecHead = ({ num, children }) =>
-  h("div", { className: "sec-head" }, h("span", { className: "sec-num" }, num), h("h2", null, children));
+const Kpi = ({ k, v, n, cor }) => h("div", { className: "kpi" },
+  h("div", { className: "k" }, k),
+  h("div", { className: "v", style: cor ? { color: cor } : null }, v),
+  h("div", { className: "n" }, n));
+const Panel = ({ titulo, hint, children }) => h("section", { className: "panel" },
+  h("h2", null, titulo, hint && h("span", { className: "hint" }, hint)),
+  h("div", { className: "body" }, children));
 
-/* ---------------- gráficos ---------------- */
+/* -------------------------------------------------- dados */
+function useDados() {
+  const [estado, setEstado] = useState({ carregando: TEM_API, erro: null,
+    relatorio: window.__RELATORIO__ || null, execucoes: window.__EXECUCOES__ || [] });
+  const [runId, setRunId] = useState((window.__RELATORIO__ || {}).run_id || "e1_v1");
+  const [runs, setRuns] = useState([]);
+
+  useEffect(() => {
+    if (!TEM_API) return;
+    let vivo = true;
+    setEstado(e => ({ ...e, carregando: true, erro: null }));
+    (async () => {
+      try {
+        const rs = await fetch(`${API}/api/runs`).then(r => r.json());
+        if (!vivo) return;
+        setRuns(rs);
+        const [rel, ex] = await Promise.all([
+          fetch(`${API}/api/report?run_id=${runId}&e2_run_id=e2_v1`).then(r => r.json()),
+          fetch(`${API}/api/executions?run_id=${runId}`).then(r => r.json()),
+        ]);
+        if (!vivo) return;
+        setEstado({ carregando: false, erro: null, relatorio: rel, execucoes: ex });
+      } catch (err) {
+        if (vivo) setEstado(e => ({ ...e, carregando: false, erro: String(err) }));
+      }
+    })();
+    return () => { vivo = false; };
+  }, [runId]);
+
+  return { ...estado, runId, setRunId, runs };
+}
+
+/* -------------------------------------------------- gráficos */
 function DoseChart({ pontos }) {
-  if (!pontos.length) return h("p", null, "Sem dados de dose ainda.");
-  const W = 860, H = 340, m = { t: 18, r: 24, b: 52, l: 56 };
+  if (!pontos || !pontos.length) return h("div", { className: "vazio" }, "Sem dados de dose.");
+  const W = 720, H = 300, m = { t: 16, r: 20, b: 48, l: 50 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const xs = pontos.map(p => p.intensidade);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
   const sx = v => m.l + (x1 === x0 ? iw / 2 : (v - x0) / (x1 - x0) * iw);
   const sy = v => m.t + ih - v * ih;
-  const mono = "IBM Plex Mono, monospace";
-  const kids = [];
+  const mono = "IBM Plex Mono, monospace", k = [];
   for (let g = 0; g <= 4; g++) {
-    const v = g / 4, y = sy(v);
-    kids.push(h("line", { key: "g" + g, x1: m.l, x2: m.l + iw, y1: y, y2: y, stroke: "var(--rule)", strokeWidth: 1 }));
-    kids.push(h("text", { key: "gl" + g, x: m.l - 10, y: y + 4, fill: "var(--ink-3)", fontSize: 11,
-      textAnchor: "end", fontFamily: mono }, v.toFixed(2)));
+    const y = sy(g / 4);
+    k.push(h("line", { key: "g" + g, x1: m.l, x2: m.l + iw, y1: y, y2: y, stroke: "var(--rule)" }));
+    k.push(h("text", { key: "gl" + g, x: m.l - 9, y: y + 4, fill: "var(--ink-3)", fontSize: 10.5,
+      textAnchor: "end", fontFamily: mono }, (g / 4).toFixed(2)));
   }
   pontos.forEach((p, i) => {
     const x = sx(p.intensidade);
-    kids.push(h("line", { key: "t" + i, x1: x, x2: x, y1: m.t + ih, y2: m.t + ih + 5, stroke: "var(--ink-3)" }));
-    kids.push(h("text", { key: "tv" + i, x, y: m.t + ih + 20, fill: "var(--ink-2)", fontSize: 11,
+    k.push(h("text", { key: "x" + i, x, y: m.t + ih + 18, fill: "var(--ink-2)", fontSize: 10.5,
       textAnchor: "middle", fontFamily: mono }, p.intensidade.toFixed(2)));
-    kids.push(h("text", { key: "ts" + i, x, y: m.t + ih + 35, fill: "var(--ink-3)", fontSize: 10,
+    k.push(h("text", { key: "s" + i, x, y: m.t + ih + 32, fill: "var(--ink-3)", fontSize: 9.5,
       textAnchor: "middle", fontFamily: mono }, p.seed));
   });
-  kids.push(h("text", { key: "ylab", x: m.l - 10, y: m.t - 4, fill: "var(--ink-3)", fontSize: 11,
+  k.push(h("text", { key: "yl", x: m.l - 9, y: m.t - 3, fill: "var(--ink-3)", fontSize: 10.5,
     textAnchor: "end", fontFamily: mono }, "M4"));
-  kids.push(h("text", { key: "xlab", x: m.l + iw / 2, y: H - 6, fill: "var(--ink-3)", fontSize: 11.5,
-    textAnchor: "middle" }, "intensidade de degradação  →  evidência pior"));
+  k.push(h("text", { key: "xl", x: m.l + iw / 2, y: H - 4, fill: "var(--ink-3)", fontSize: 11,
+    textAnchor: "middle" }, "intensidade de degradação →"));
   [["A", "var(--arm-a)"], ["B", "var(--arm-b)"]].forEach(([arm, cor]) => {
-    const pts = pontos.filter(p => p.por_braco[arm] !== null && p.por_braco[arm] !== undefined);
+    const pts = pontos.filter(p => p.por_braco[arm] != null);
     if (!pts.length) return;
-    kids.push(h("polyline", { key: "l" + arm, fill: "none", stroke: cor, strokeWidth: 2.5,
+    k.push(h("polyline", { key: "p" + arm, fill: "none", stroke: cor, strokeWidth: 2.4,
       strokeLinejoin: "round", points: pts.map(p => `${sx(p.intensidade)},${sy(p.por_braco[arm])}`).join(" ") }));
-    pts.forEach((p, i) => kids.push(h("circle", { key: `c${arm}${i}`, cx: sx(p.intensidade),
-      cy: sy(p.por_braco[arm]), r: 5, fill: cor, stroke: "var(--surface)", strokeWidth: 2 })));
+    pts.forEach((p, i) => k.push(h("circle", { key: `c${arm}${i}`, cx: sx(p.intensidade),
+      cy: sy(p.por_braco[arm]), r: 4.5, fill: cor, stroke: "var(--surface)", strokeWidth: 2 })));
   });
   return h("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
-    "aria-label": "Acerto de decisão por intensidade de degradação, em cada braço" }, kids);
+    "aria-label": "Acerto de decisão por intensidade de degradação em cada braço" }, k);
 }
 
 function CasosChart({ pareado }) {
-  if (!pareado) return null;
-  const entradas = Object.entries(pareado.por_caso);
-  const W = 860, linha = 21, m = { t: 10, r: 20, b: 30, l: 170 };
-  const H = m.t + entradas.length * linha + m.b, iw = W - m.l - m.r;
-  const lim = Math.max(0.35, ...entradas.map(([, v]) => Math.abs(v)));
-  const sx = v => m.l + (v + lim) / (2 * lim) * iw;
-  const zero = sx(0), mono = "IBM Plex Mono, monospace";
-  const kids = [h("line", { key: "z", x1: zero, x2: zero, y1: m.t, y2: m.t + entradas.length * linha,
-    stroke: "var(--ink-3)", strokeWidth: 1.5 })];
-  entradas.forEach(([caso, v], i) => {
-    const y = m.t + i * linha + linha / 2;
-    const cor = v > 0 ? "var(--arm-b)" : v < 0 ? "var(--arm-a)" : "var(--ink-3)";
-    kids.push(h("rect", { key: "r" + i, x: Math.min(zero, sx(v)), y: y - 6,
-      width: Math.abs(sx(v) - zero) || 1.5, height: 12, fill: cor, rx: 1 }));
-    kids.push(h("text", { key: "n" + i, x: m.l - 12, y: y + 4, fill: "var(--ink-2)", fontSize: 11,
-      textAnchor: "end", fontFamily: mono }, caso.replace("case_tkt_", "").replace("case_", "")));
+  if (!pareado) return h("div", { className: "vazio" }, "Sem pares por caso.");
+  const ent = Object.entries(pareado.por_caso);
+  const W = 720, lin = 19, m = { t: 8, r: 16, b: 26, l: 150 };
+  const H = m.t + ent.length * lin + m.b, iw = W - m.l - m.r;
+  const lim = Math.max(0.3, ...ent.map(([, v]) => Math.abs(v)));
+  const sx = v => m.l + (v + lim) / (2 * lim) * iw, zero = sx(0);
+  const mono = "IBM Plex Mono, monospace";
+  const k = [h("line", { key: "z", x1: zero, x2: zero, y1: m.t, y2: m.t + ent.length * lin,
+    stroke: "var(--ink-3)", strokeWidth: 1.3 })];
+  ent.forEach(([c, v], i) => {
+    const y = m.t + i * lin + lin / 2;
+    k.push(h("rect", { key: "r" + i, x: Math.min(zero, sx(v)), y: y - 5.5,
+      width: Math.abs(sx(v) - zero) || 1.4, height: 11,
+      fill: v > 0 ? "var(--arm-b)" : v < 0 ? "var(--arm-a)" : "var(--ink-3)", rx: 1 }));
+    k.push(h("text", { key: "t" + i, x: m.l - 10, y: y + 3.5, fill: "var(--ink-2)", fontSize: 10.5,
+      textAnchor: "end", fontFamily: mono }, c.replace("case_tkt_", "").replace("case_", "")));
   });
-  kids.push(h("text", { key: "la", x: m.l, y: H - 8, fill: "var(--arm-a)", fontSize: 11, fontFamily: mono },
+  k.push(h("text", { key: "a", x: m.l, y: H - 7, fill: "var(--arm-a)", fontSize: 10.5, fontFamily: mono },
     "← mono acerta mais"));
-  kids.push(h("text", { key: "lb", x: W - m.r, y: H - 8, fill: "var(--arm-b)", fontSize: 11,
+  k.push(h("text", { key: "b", x: W - m.r, y: H - 7, fill: "var(--arm-b)", fontSize: 10.5,
     textAnchor: "end", fontFamily: mono }, "multi acerta mais →"));
   return h("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
-    "aria-label": "Diferença de acerto entre multi e mono, por caso" }, kids);
+    "aria-label": "Diferença de acerto entre multi e mono por caso" }, k);
 }
 
-/* ---------------- visão: resumo ---------------- */
-function Resumo() {
+/* -------------------------------------------------- visão geral */
+const META = (typeof window !== "undefined" && window.__META__) || {};
+
+function AvisoParcial() {
+  if (!META.aviso) return null;
+  return h("div", { className: "note caveat" }, h("p", null, META.aviso));
+}
+
+function VisaoGeral({ R }) {
   const m4 = R.metricas.find(m => m.id === "M4") || { por_braco: {} };
   const h1 = R.hipoteses.find(x => x.id === "H1");
+  const h2 = R.hipoteses.find(x => x.id === "H2");
   const p = R.pareado_por_caso;
-  const a = m4.por_braco.A, b = m4.por_braco.B;
+  const A = R.bracos.A || {}, B = R.bracos.B || {};
+  const conf = (A.n && B.n) ? ((A.concluidas + B.concluidas) / (A.n + B.n)) : null;
+  const indistinguivel = !p || p.ic_low == null || (p.ic_low <= 0 && p.ic_high >= 0);
 
-  let frase, detalhe;
-  if (a == null || b == null) {
-    frase = "Ainda sem acerto de decisão nos dois braços.";
-    detalhe = "A rodada precisa concluir execuções em mono e multi antes de comparar.";
-  } else if (!p || p.ic_low === null || (p.ic_low <= 0 && p.ic_high >= 0)) {
-    frase = "Mono e multi não se distinguem nesta amostra.";
-    detalhe = "A diferença pareada por caso tem intervalo de confiança que cruza o zero: os dados " +
-      "não sustentam dizer que uma arquitetura acerta mais que a outra.";
-  } else {
-    frase = `A arquitetura ${p.diferenca_media > 0 ? "multi-agente" : "mono-agente"} acerta mais.`;
-    detalhe = `Diferença pareada por caso de ${fmt(p.diferenca_media)} em M4, IC95 ` +
-      `[${fmt(p.ic_low)} · ${fmt(p.ic_high)}], reamostrando casos.`;
-  }
+  return h(Fragment, null,
+    h(AvisoParcial, null),
+    h("div", { className: "kpis" },
+      h(Kpi, { k: "Execuções analisadas", v: R.execucoes, n: `${A.n || 0} mono · ${B.n || 0} multi` }),
+      h(Kpi, { k: "Acerto de decisão · mono", v: pct(m4.por_braco.A), n: "M4", cor: "var(--arm-a)" }),
+      h(Kpi, { k: "Acerto de decisão · multi", v: pct(m4.por_braco.B), n: "M4", cor: "var(--arm-b)" }),
+      h(Kpi, { k: "Conformidade", v: pct(conf), n: "execuções concluídas sem erro" })),
 
-  const ef = h1 && h1.detalhe ? h1.detalhe.efeito_principal : null;
-  const cr = h1 && h1.detalhe ? h1.detalhe.cruzamento : null;
+    h(Panel, { titulo: "Veredito da pergunta central", hint: "H1 · P1.1" },
+      h("p", { style: { fontSize: 17, color: "var(--ink)" } },
+        indistinguivel
+          ? "Mono e multi não se distinguem nesta amostra."
+          : `A arquitetura ${p.diferenca_media > 0 ? "multi" : "mono"}-agente acerta mais.`),
+      h("p", null, indistinguivel
+        ? `A diferença pareada por caso é ${fmt(p && p.diferenca_media)} com IC95 ` +
+          `[${fmt(p && p.ic_low)} · ${fmt(p && p.ic_high)}] — cruza o zero.`
+        : `Diferença pareada de ${fmt(p.diferenca_media)}, IC95 [${fmt(p.ic_low)} · ${fmt(p.ic_high)}].`),
+      h("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 } },
+        h1 && h(Pill, { status: h1.status }), h2 && h(Pill, { status: h2.status }),
+        h("span", { className: "mono mid", style: { fontSize: 12 } },
+          `H1 n=${h1 ? h1.n : "—"} · H2 n=${h2 ? h2.n : "—"}`)),
+      h1 && h1.detalhe && h1.detalhe.efeito_principal && h1.estimativa > 0 &&
+        h1.detalhe.efeito_principal.coef < 0 &&
+        h("div", { className: "note caveat" }, h("p", null,
+          h("b", null, "Atenção à leitura: "),
+          "a interação positiva significa que a multi ", h("b", null, "encurta a distância"),
+          " com a degradação — não que ela lidera. O efeito principal é negativo."))),
 
-  return h("div", { className: "view" },
-    h("div", { className: "readout" },
-      h("div", { className: "eyebrow" }, "Pergunta central · H1"),
-      h("div", { className: "verdict" }, frase),
-      h("p", null, detalhe),
-      h1 && h1.estimativa !== null && h(Fragment, null,
-        h("div", { style: { marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
-          h(Pill, { status: h1.status }),
-          h("span", { className: "mono", style: { color: "var(--ink-3)", fontSize: 12.5 } },
-            `P1.1 · dose-resposta · n=${h1.n}`)),
-        h("div", { className: "coefs" },
-          h("div", { className: "coef" },
-            h("div", { className: "k" }, "Interação  intensidade × braço"),
-            h("div", { className: "v" }, fmt(h1.estimativa)),
-            h("div", { className: "ci" }, `IC95 [${fmt(h1.ci_low)} · ${fmt(h1.ci_high)}]`),
-            h("div", { className: "q" }, "A distância entre os braços muda com a degradação? " +
-              "Positivo = a multi encurta. É o teste pré-registrado de P1.1.")),
-          ef && h("div", { className: "coef" },
-            h("div", { className: "k" }, "Efeito principal  braço multi"),
-            h("div", { className: "v" }, fmt(ef.coef)),
-            h("div", { className: "ci" }, `IC95 [${fmt(ef.ci_low)} · ${fmt(ef.ci_high)}]`),
-            h("div", { className: "q" }, "Quem está na frente com evidência íntegra? " +
-              "Negativo = a multi está atrás."))),
-        ef && ef.coef < 0 && h1.estimativa > 0 && h(Fragment, null,
-          h("div", { className: "note caveat", style: { marginTop: 18 } },
-            h("p", null,
-              h("b", null, "“Sustentada” aqui não quer dizer que a multi venceu."),
-              " Os dois coeficientes contam uma história só: a multi começa ",
-              h("b", null, "atrás"), " e encurta a distância conforme a evidência piora. ",
-              "O teste pré-registrado é sobre a inclinação, não sobre quem lidera.")),
-          cr && h("p", { className: "mono", style: { fontSize: 12.5, color: "var(--ink-3)", marginTop: 10 } },
-            `Empate estimado em intensidade ${fmt(cr.intensidade)} — ` +
-            (cr.dentro_da_faixa ? "dentro" : "fora") +
-            ` da faixa observada [${fmt(cr.faixa_observada[0])} · ${fmt(cr.faixa_observada[1])}]. ` +
-            "É extrapolação do ajuste, não observação direta.")))),
-
-    h("section", null,
-      h(SecHead, { num: "6.2a" }, "Os dois braços"),
-      h("p", null, "Mesmos 17 chamados, mesmos seeds, mesmo modelo em todos os papéis (RF33). ",
-        "O que muda é apenas a arquitetura — é isso que permite atribuir a diferença a ela."),
-      h("div", { className: "arms" },
-        [["A", "Mono-agente", "--arm-a"], ["B", "Multi-agente", "--arm-b"]].map(([k, nome, cor]) => {
-          const d = R.bracos[k]; if (!d || !d.n) return null;
-          return h("div", { className: "arm", key: k },
-            h("div", { className: "tag" }, h("i", { style: { background: `var(${cor})` } }), nome),
-            h("div", { className: "big" }, pct(m4.por_braco[k])),
-            h("div", { className: "unit" }, "acerto de decisão (M4)"),
-            h("dl", null,
-              h("dt", null, "execuções"), h("dd", null, d.n),
-              h("dt", null, "concluídas sem erro"), h("dd", null, `${d.concluidas} (${pct(d.conformidade)})`),
-              h("dt", null, "erro de comportamento"), h("dd", null, d.erro_comportamento),
-              h("dt", null, "erro de contrato"), h("dd", null, d.erro_contrato),
-              h("dt", null, "chamadas de LLM (média)"), h("dd", null, fmt(d.llm_calls, 1)),
-              h("dt", null, "tokens de entrada (média)"),
-              h("dd", null, d.tokens_in ? Math.round(d.tokens_in).toLocaleString("pt-BR") : "—"),
-              h("dt", null, "duração (média)"), h("dd", null, fmt(d.duracao_s, 1) + " s")));
-        }))));
-}
-
-/* ---------------- visão: dose-resposta ---------------- */
-function Dose() {
-  return h("div", { className: "view" },
-    h("section", { style: { marginTop: 28 } },
-      h(SecHead, { num: "6.2b" }, "Dose-resposta"),
-      h("p", null, "H1 não afirma que a multi é melhor. Afirma que ",
-        h("b", null, "a vantagem da multi cresce conforme a evidência piora"),
-        ". Por isso o teste é o coeficiente de interação de ",
-        h("span", { className: "mono" }, "M4 ~ intensidade × braço"),
-        ", e não um contraste entre duas médias: dose-resposta mostra que a diferença acompanha a ",
-        "causa proposta, o que é evidência de mecanismo, não só de associação."),
-      h("figure", null,
+    h("div", { className: "grid2" },
+      h(Panel, { titulo: "Dose-resposta", hint: "M4 × intensidade" },
         h("div", { className: "legend" },
-          h("span", null, h("i", { style: { background: "var(--arm-a)" } }), "Mono-agente"),
-          h("span", null, h("i", { style: { background: "var(--arm-b)" } }), "Multi-agente")),
-        h("div", { className: "chart-scroll" }, h(DoseChart, { pontos: R.dose_resposta })),
-        h("figcaption", null, "Acerto de decisão (M4) em cada nível de degradação. A intensidade é ",
-          "medida ", h("b", null, "antes"), " da execução, sobre o conjunto fixo de recursos declarado ",
-          "no gabarito — nunca sobre as ferramentas que o agente escolheu chamar, o que deixaria a ",
-          "arquitetura alterar a própria variável explicativa."))),
-    h("section", null,
-      h(SecHead, { num: "6.2c" }, "Onde as arquiteturas divergiram"),
-      h("p", null, "Diferença de acerto entre multi e mono dentro de cada chamado. O caso é a ",
-        "unidade de amostragem: tratar oito seeds do mesmo chamado como oito observações ",
-        "independentes subestimaria o erro."),
-      h("figure", null,
-        h("div", { className: "chart-scroll" }, h(CasosChart, { pareado: R.pareado_por_caso })),
-        h("figcaption", null, "Barra à direita, a multi acertou mais naquele chamado; à esquerda, a mono."))));
+          h("span", null, h("i", { style: { background: "var(--arm-a)" } }), "mono"),
+          h("span", null, h("i", { style: { background: "var(--arm-b)" } }), "multi")),
+        h(DoseChart, { pontos: R.dose_resposta })),
+      h(Panel, { titulo: "Custo por execução" },
+        h("table", null, h("tbody", null,
+          [["Chamadas de LLM", fmt(A.llm_calls, 1), fmt(B.llm_calls, 1)],
+           ["Tokens de entrada", num(A.tokens_in), num(B.tokens_in)],
+           ["Duração média (s)", fmt(A.duracao_s, 1), fmt(B.duracao_s, 1)],
+           ["Erro de comportamento", A.erro_comportamento, B.erro_comportamento],
+           ["Erro de contrato", A.erro_contrato, B.erro_contrato]].map((l, i) =>
+            h("tr", { key: i }, h("td", null, l[0]),
+              h("td", { className: "num win-a" }, l[1]), h("td", { className: "num win-b" }, l[2])))))))
+  );
 }
 
-/* ---------------- visão: métricas ---------------- */
-function Metricas() {
-  return h("div", { className: "view" },
-    h("section", { style: { marginTop: 28 } },
-      h(SecHead, { num: "6.2d" }, "Métricas M1–M16"),
-      h("p", null, "Todas as métricas determinísticas, calculadas sobre o trace persistido. ",
-        "Nenhuma depende de juiz LLM — o juiz não foi executado, e nenhuma métrica de rubrica é reportada."),
-      h("div", { className: "tbl-scroll" },
-        h("table", null,
-          h("thead", null, h("tr", null,
-            h("th", null, "ID"), h("th", null, "Métrica"),
-            h("th", { style: { textAlign: "right" } }, "Mono"),
-            h("th", { style: { textAlign: "right" } }, "Multi"),
-            h("th", { style: { textAlign: "right" } }, "Δ"),
-            h("th", null, "Favorece"),
-            h("th", { style: { textAlign: "right" } }, "n aplicável A/B"))),
-          h("tbody", null, R.metricas.map(m => {
-            const d = m.diferenca;
-            let cls = "", quem = "—";
-            if (d != null && Math.abs(d) > 1e-9) {
-              const multiMelhor = m.menor_e_melhor ? d < 0 : d > 0;
-              cls = multiMelhor ? "win-b" : "win-a";
-              quem = multiMelhor ? "multi" : "mono";
-            }
-            return h("tr", { key: m.id },
-              h("td", { className: "mono" }, m.id),
-              h("td", null, m.nome, m.menor_e_melhor &&
-                h("span", { className: "mid" }, " (menor é melhor)")),
-              h("td", { className: "num" }, fmt(m.por_braco.A)),
-              h("td", { className: "num" }, fmt(m.por_braco.B)),
-              h("td", { className: "num " + cls }, d == null ? "—" : (d > 0 ? "+" : "") + fmt(d)),
-              h("td", { className: "mono mid" }, quem),
-              h("td", { className: "num mid" }, `${m.aplicavel.A || 0}/${m.aplicavel.B || 0}`));
-          })))),
-      h("div", { className: "note caveat" },
-        h("p", null, h("b", null, "“Não aplicável” nunca é zero."),
-          " M14 mede perda de evidência no handoff e não existe na arquitetura mono; M5a/M5b não ",
-          "se aplicam à detecção sintomática. Colapsar isso em zero premiaria quem não tem a etapa. ",
-          "A coluna ", h("span", { className: "mono" }, "n aplicável"),
-          " mostra sobre quantas execuções cada média foi calculada."))),
-    h("section", null,
-      h(SecHead, { num: "6.3" }, "Vereditos"),
-      h("div", { className: "tbl-scroll" },
-        h("table", null,
-          h("thead", null, h("tr", null,
-            h("th", null, "Hipótese"), h("th", null, "Teste"), h("th", null, "Métrica"),
-            h("th", { style: { textAlign: "right" } }, "n"),
-            h("th", { style: { textAlign: "right" } }, "Estimativa"),
-            h("th", { style: { textAlign: "right" } }, "IC95"), h("th", null, "Veredito"))),
-          h("tbody", null, R.hipoteses.map((x, i) => h("tr", { key: i },
-            h("td", { className: "mono" }, `${x.id} / ${x.predicao}`),
-            h("td", null, x.teste),
-            h("td", { className: "mono" }, x.metrica),
-            h("td", { className: "num" }, x.n),
-            h("td", { className: "num" }, x.estimativa == null ? "—" : fmt(x.estimativa, 3)),
-            h("td", { className: "num" }, x.ci_low == null ? "—" : `[${fmt(x.ci_low, 2)} · ${fmt(x.ci_high, 2)}]`),
-            h("td", null, h(Pill, { status: x.status }))))))),
-      h("div", { className: "note" },
-        h("p", null, h("b", null, "Todos os testes foram declarados antes da execução."),
-          " Nenhum foi escolhido depois de ver os dados — é o que separa este resultado de uma ",
-          "torcida com números."),
-        h("p", null, h("b", null, "H3 e H4 não foram executados"),
-          ", e nenhum veredito é emitido para eles. Não-execução não é resultado inconclusivo: ",
-          "são categorias distintas."))));
+/* -------------------------------------------------- experimentos */
+function Experimentos({ R }) {
+  return h(Fragment, null,
+    h(Panel, { titulo: "Métricas determinísticas", hint: "M1–M16 sobre o trace persistido" },
+      h("div", { className: "scroll" }, h("table", null,
+        h("thead", null, h("tr", null, h("th", null, "ID"), h("th", null, "Métrica"),
+          h("th", { style: { textAlign: "right" } }, "Mono"),
+          h("th", { style: { textAlign: "right" } }, "Multi"),
+          h("th", { style: { textAlign: "right" } }, "Δ"), h("th", null, "Favorece"),
+          h("th", { style: { textAlign: "right" } }, "n A/B"))),
+        h("tbody", null, R.metricas.map(m => {
+          const d = m.diferenca;
+          let cls = "", quem = "—";
+          if (d != null && Math.abs(d) > 1e-9) {
+            const mb = m.menor_e_melhor ? d < 0 : d > 0;
+            cls = mb ? "win-b" : "win-a"; quem = mb ? "multi" : "mono";
+          }
+          return h("tr", { key: m.id },
+            h("td", { className: "mono" }, m.id),
+            h("td", null, m.nome, m.menor_e_melhor && h("span", { className: "mid" }, " ↓ melhor")),
+            h("td", { className: "num" }, fmt(m.por_braco.A)),
+            h("td", { className: "num" }, fmt(m.por_braco.B)),
+            h("td", { className: "num " + cls }, d == null ? "—" : (d > 0 ? "+" : "") + fmt(d)),
+            h("td", { className: "mono mid" }, quem),
+            h("td", { className: "num mid" }, `${m.aplicavel.A || 0}/${m.aplicavel.B || 0}`));
+        })))),
+      h("div", { className: "note caveat" }, h("p", null,
+        h("b", null, "“Não aplicável” nunca é zero. "),
+        "M14 não existe na arquitetura mono. A coluna n A/B mostra sobre quantas execuções cada ",
+        "média foi calculada."))),
+
+    h(Panel, { titulo: "Vereditos das hipóteses", hint: "todos os testes declarados antes da execução" },
+      h("table", null,
+        h("thead", null, h("tr", null, h("th", null, "Hipótese"), h("th", null, "Teste"),
+          h("th", null, "Métrica"), h("th", { style: { textAlign: "right" } }, "n"),
+          h("th", { style: { textAlign: "right" } }, "Estimativa"),
+          h("th", { style: { textAlign: "right" } }, "IC95"), h("th", null, "Veredito"))),
+        h("tbody", null, R.hipoteses.map((x, i) => h("tr", { key: i },
+          h("td", { className: "mono" }, `${x.id}/${x.predicao}`),
+          h("td", null, x.teste), h("td", { className: "mono" }, x.metrica),
+          h("td", { className: "num" }, x.n),
+          h("td", { className: "num" }, x.estimativa == null ? "—" : fmt(x.estimativa, 3)),
+          h("td", { className: "num" }, x.ic_low == null ? "—" : `[${fmt(x.ic_low, 2)} · ${fmt(x.ic_high, 2)}]`),
+          h("td", null, h(Pill, { status: x.status })))))),
+      h("div", { className: "note" }, h("p", null,
+        h("b", null, "H3 e H4 não foram executados"),
+        " e nenhum veredito é emitido para eles. Não-execução não é resultado inconclusivo."))),
+
+    h(Panel, { titulo: "Divergência por chamado", hint: "o caso é a unidade de amostragem" },
+      h(CasosChart, { pareado: R.pareado_por_caso })));
 }
 
-/* ---------------- visão: trajetórias ---------------- */
-const rotuloArm = a => a === "A" ? "mono" : a === "B" ? "multi" : a;
-
-function Passo({ p }) {
-  return h("div", { className: "passo" },
-    h("div", { className: "n" }, String(p.step)),
-    h("div", { className: "who" }, p.agent),
-    h("div", { className: "what" },
-      p.tool && h("span", { className: "tool" }, p.tool),
-      p.reasoning && h("div", { className: "args" }, p.reasoning),
-      p.args && Object.keys(p.args).length > 0 && h("div", { className: "args" }, JSON.stringify(p.args)),
-      p.erro
-        ? h("div", { className: "res err" }, "erro: " + p.erro)
-        : p.resultado && h("div", { className: "res" }, p.resultado)));
-}
+/* -------------------------------------------------- execuções */
+const rotArm = a => a === "A" ? "mono" : a === "B" ? "multi" : a;
 
 function Detalhe({ e }) {
   const r = e.resolucao;
@@ -285,182 +260,241 @@ function Detalhe({ e }) {
     e.handoffs.length > 0 && h(Fragment, null,
       h("h4", null, `Handoffs (${e.handoffs.length})`),
       e.handoffs.map((x, i) => h("div", { className: "hoff", key: i },
-        `${x.de} → ${x.para}  ·  após passo ${x.apos_passo}`))),
+        `${x.de} → ${x.para} · após passo ${x.apos_passo}`))),
     h("h4", null, `Trajetória — ${e.passos.length} passos`),
-    e.passos.map((p, i) => h(Passo, { p, key: i })),
-    h("h4", null, "Resolução entregue"),
-    !r
-      ? h("div", { className: "resol" },
+    e.passos.map((p, i) => h("div", { className: "passo", key: i },
+      h("div", { className: "n" }, String(p.step)),
+      h("div", { className: "who" }, p.agent),
+      h("div", null,
+        p.tool && h("span", { className: "tool" }, p.tool),
+        p.reasoning && h("div", { className: "d" }, p.reasoning),
+        p.args && Object.keys(p.args).length > 0 && h("div", { className: "d" }, JSON.stringify(p.args)),
+        p.erro ? h("div", { className: "d err" }, "erro: " + p.erro)
+               : p.resultado && h("div", { className: "d" }, p.resultado)))),
+    h("h4", null, "Resolução"),
+    !r ? h("div", { className: "resol" },
           h("div", { className: "just" }, "O agente terminou sem chamar submit_resolution."))
-      : h("div", { className: "resol" },
+       : h("div", { className: "resol" },
           h("div", { className: "mono", style: { fontWeight: 600 } }, "decisão: " + r.decision),
           h("div", { className: "just" }, r.justification || "—"),
           r.evidencias.length > 0 && h("div", { className: "evid" },
             r.evidencias.map((ev, i) => h(Fragment, { key: i },
-              h("span", { className: ev.resolve ? "sim" : "nao" }, ev.resolve ? "resolve" : "não resolve"),
+              h("span", { className: ev.resolve ? "s" : "x" }, ev.resolve ? "resolve" : "não resolve"),
               h("span", null, `${ev.tool} · ${ev.field}`),
-              h("span", { style: { color: "var(--ink-3)" } }, "step " + ev.step)))),
-          r.unverified.length > 0 && h("div", { className: "args", style: { marginTop: 10 } },
-            "lacunas declaradas: " + r.unverified.join(" · ")),
-          e.guard.verdict === "blocked" && h("div", { className: "args",
-            style: { marginTop: 10, color: "var(--no)" } },
+              h("span", { className: "mid" }, "step " + ev.step)))),
+          r.unverified.length > 0 && h("div", { className: "d", style: { marginTop: 9 } },
+            "lacunas: " + r.unverified.join(" · ")),
+          e.guard.verdict === "blocked" && h("div", { className: "d err", style: { marginTop: 9 } },
             `guardrail bloqueou (${e.guard.failed.join(", ")}) e entregou "${e.guard.decision}"`)));
 }
 
-function Linha({ e }) {
-  const [aberto, setAberto] = useState(false);
+function LinhaExec({ e }) {
+  const [ab, setAb] = useState(false);
   const dec = (e.resolucao || {}).decision;
-  const alterna = useCallback(() => setAberto(v => !v), []);
+  const alterna = useCallback(() => setAb(v => !v), []);
   return h(Fragment, null,
-    h("div", { className: "exec", role: "button", tabIndex: 0, "aria-expanded": aberto,
-      onClick: alterna,
+    h("div", { className: "exec", role: "button", tabIndex: 0, "aria-expanded": ab, onClick: alterna,
       onKeyDown: ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); alterna(); } } },
       h("div", { className: "bar", style: { background: `var(--arm-${e.arm === "A" ? "a" : "b"})` } }),
       h("div", { className: "cid" }, e.case_id.replace("case_tkt_", "").replace("case_", "")),
-      h("div", { className: "tag2" }, `${rotuloArm(e.arm)} · ${e.seed || "—"} · ${e.passos.length} passos`),
-      h("div", { className: "dec", style: dec ? null : { color: "var(--unk)" } }, dec || "sem resolução"),
-      h("div", { className: "tag2", style: e.guard.verdict === "blocked" ? { color: "var(--no)" } : null },
-        e.guard.verdict || "—")),
-    aberto && h(Detalhe, { e }));
+      h("div", { className: "t" }, `${rotArm(e.arm)} · ${e.seed || "—"} · ${e.passos.length} passos`),
+      h("div", { className: "mono", style: dec ? null : { color: "var(--unk)" } }, dec || "sem resolução"),
+      h(Pill, { status: e.guard.verdict })),
+    ab && h(Detalhe, { e }));
 }
 
-function Trajetorias() {
-  const [arm, setArm] = useState("");
-  const [dec, setDec] = useState("");
-  const [guard, setGuard] = useState("");
-  const [busca, setBusca] = useState("");
+function Execucoes({ execucoes }) {
+  const [arm, setArm] = useState(""), [dec, setDec] = useState("");
+  const [guard, setGuard] = useState(""), [busca, setBusca] = useState("");
   const decisoes = useMemo(
-    () => [...new Set(E.map(e => (e.resolucao || {}).decision).filter(Boolean))].sort(), []);
+    () => [...new Set(execucoes.map(e => (e.resolucao || {}).decision).filter(Boolean))].sort(),
+    [execucoes]);
   const vis = useMemo(() => {
     const t = busca.trim().toLowerCase();
-    return E.filter(e =>
-      (!arm || e.arm === arm) &&
-      (!dec || (e.resolucao || {}).decision === dec) &&
-      (!guard || (e.guard.verdict || "—") === guard) &&
+    return execucoes.filter(e =>
+      (!arm || e.arm === arm) && (!dec || (e.resolucao || {}).decision === dec) &&
+      (!guard || (e.guard.verdict || "") === guard) &&
       (!t || e.case_id.toLowerCase().includes(t)));
-  }, [arm, dec, guard, busca]);
+  }, [execucoes, arm, dec, guard, busca]);
 
-  return h("div", { className: "view" },
-    h("section", { style: { marginTop: 28 } },
-      h(SecHead, { num: "6.4" }, "O que cada agente respondeu"),
-      h("p", null, "A trajetória completa de cada execução: o que o agente chamou, o que a API ",
-        "devolveu, o que ele concluiu e se a evidência citada resolve. É a pergunta que o trace ",
-        "canônico sempre pôde responder e que nenhuma interface expunha — clique numa linha para abrir."),
-      h("div", { className: "filtros" },
-        h("select", { value: arm, onChange: e => setArm(e.target.value), "aria-label": "Filtrar por braço" },
-          h("option", { value: "" }, "todos os braços"),
-          h("option", { value: "A" }, "mono"), h("option", { value: "B" }, "multi")),
-        h("select", { value: dec, onChange: e => setDec(e.target.value), "aria-label": "Filtrar por decisão" },
-          h("option", { value: "" }, "todas as decisões"),
-          decisoes.map(d => h("option", { key: d, value: d }, d))),
-        h("select", { value: guard, onChange: e => setGuard(e.target.value), "aria-label": "Filtrar por guardrail" },
-          h("option", { value: "" }, "guardrail: qualquer"),
-          h("option", { value: "pass" }, "passou"), h("option", { value: "blocked" }, "bloqueado")),
-        h("input", { type: "search", value: busca, onChange: e => setBusca(e.target.value),
-          placeholder: "filtrar por chamado…", "aria-label": "Filtrar por chamado" }),
-        h("span", { className: "cont" }, `${vis.length} de ${E.length}`)),
-      h("div", { className: "exec-list" },
-        vis.length === 0
-          ? h("div", { className: "vazio" }, "Nenhuma execução com esses filtros.")
-          : vis.map(e => h(Linha, { e, key: e.id })))));
+  return h("section", { className: "panel", style: { marginTop: 0 } },
+    h("div", { className: "filtros" },
+      h("select", { value: arm, onChange: e => setArm(e.target.value), "aria-label": "Braço" },
+        h("option", { value: "" }, "todos os braços"), h("option", { value: "A" }, "mono"),
+        h("option", { value: "B" }, "multi")),
+      h("select", { value: dec, onChange: e => setDec(e.target.value), "aria-label": "Decisão" },
+        h("option", { value: "" }, "todas as decisões"),
+        decisoes.map(d => h("option", { key: d, value: d }, d))),
+      h("select", { value: guard, onChange: e => setGuard(e.target.value), "aria-label": "Guardrail" },
+        h("option", { value: "" }, "guardrail: qualquer"), h("option", { value: "pass" }, "passou"),
+        h("option", { value: "blocked" }, "bloqueado")),
+      h("input", { type: "search", value: busca, onChange: e => setBusca(e.target.value),
+        placeholder: "filtrar chamado…", "aria-label": "Filtrar por chamado" }),
+      h("span", { className: "cont" }, `${vis.length} de ${execucoes.length}`)),
+    h("div", { style: { maxHeight: "68vh", overflow: "auto" } },
+      vis.length === 0 ? h("div", { className: "vazio" }, "Nenhuma execução com esses filtros.")
+                       : vis.map(e => h(LinhaExec, { e, key: e.id }))));
 }
 
-/* ---------------- visão: limitações ---------------- */
-function Limitacoes() {
-  const itens = [
-    ["A intensidade varia mais entre chamados do que entre seeds.",
-      "A dose-resposta apoia-se em heterogeneidade entre casos, o que é mais fraco que variação dentro do mesmo caso."],
-    ["A escala de severidade é decisão analítica, não medida.",
-      "Os pesos por modo foram declarados antes de olhar o resultado, mas outra escala plausível daria outro coeficiente. Nenhuma análise de sensibilidade foi executada."],
-    ["Falha de protocolo confunde-se com erro de decisão em M4.",
-      "Execuções que terminam sem submit_resolution entram como zero, misturando “não decidiu” com “decidiu errado”."],
-    ["A citação de evidência tem contrato subespecificado.",
-      "Mesmo após a correção do comparador, a maioria das referências não resolve — parte é o agente errando, parte é ambiguidade do contrato, e os dois não estão separados."],
-    ["No braço multi, o índice do passo é inalcançável.",
-      "Cada papel conta passos no seu próprio loop enquanto o trace numera globalmente. M6 penaliza o braço B por um motivo que não é arquitetura."],
-    ["A multi consome mais computação.",
-      "Um eventual ganho pode vir do isolamento de contexto ou de mais chamadas de LLM. Quantificado, não isolado."],
-    ["Poder estatístico limitado.",
-      "17 chamados base. Ausência de significância não é evidência de ausência de efeito."],
-    ["O juiz LLM não foi executado.",
-      "Nenhuma métrica de rubrica é reportada. Métrica de rubrica sem meta-avaliação tem erro desconhecido; em vez de reportá-la com ressalva, não se reporta."],
-  ];
-  return h("div", { className: "view" },
-    h("section", { style: { marginTop: 28 } },
-      h(SecHead, { num: "6.5" }, "O que este relatório não sustenta"),
-      h("p", null, "Registradas porque um resultado sem os seus limites declarados é mais frágil, ",
-        "não mais forte."),
-      h("ul", { className: "plain" }, itens.map(([t, d], i) =>
-        h("li", { key: i }, h("b", null, t), " ", d)))));
+/* -------------------------------------------------- console */
+function Console() {
+  const [casos, setCasos] = useState([]);
+  const [fila, setFila] = useState([]);
+  const [form, setForm] = useState({ case_id: "", architecture: "mono", seed: "complete", criticality: "medium" });
+  const [msg, setMsg] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+
+  const recarregar = useCallback(async () => {
+    if (!TEM_API) return;
+    try {
+      const [cs, ts] = await Promise.all([
+        fetch(`${API}/api/cases`).then(r => r.json()),
+        fetch(`${API}/api/tickets?limite=60`).then(r => r.json()),
+      ]);
+      setCasos(cs); setFila(ts);
+      setForm(f => f.case_id ? f : { ...f, case_id: cs.length ? cs[0].case_id : "" });
+    } catch (e) { setMsg({ erro: true, texto: String(e) }); }
+  }, []);
+  useEffect(() => { recarregar(); const t = setInterval(recarregar, 5000); return () => clearInterval(t); },
+    [recarregar]);
+
+  if (!TEM_API) return h(Panel, { titulo: "Console de atendimento" },
+    h("div", { className: "note caveat" }, h("p", null,
+      h("b", null, "Disponível apenas com o BFF no ar. "),
+      "Suba com ", h("code", null, "uv run uvicorn src.interfaces.api:app --port 8010"),
+      " e abra a plataforma em modo de desenvolvimento.")));
+
+  const enviar = async (ev) => {
+    ev.preventDefault(); setEnviando(true); setMsg(null);
+    try {
+      const r = await fetch(`${API}/api/tickets`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.detail || r.statusText);
+      setMsg({ texto: `chamado ${b.task_id.slice(0, 10)}… enfileirado com prioridade ${b.priority}` });
+      recarregar();
+    } catch (e) { setMsg({ erro: true, texto: String(e) }); }
+    finally { setEnviando(false); }
+  };
+
+  const caso = casos.find(c => c.case_id === form.case_id);
+  return h(Fragment, null,
+    h("div", { className: "grid2" },
+      h(Panel, { titulo: "Abrir chamado", hint: "RF29" },
+        h("form", { className: "form", onSubmit: enviar },
+          h("label", null, "Chamado",
+            h("select", { value: form.case_id, onChange: e => setForm({ ...form, case_id: e.target.value }) },
+              casos.map(c => h("option", { key: c.case_id, value: c.case_id },
+                `${c.ticket_id} · ${c.case_id.replace("case_", "")}`)))),
+          h("label", null, "Arquitetura",
+            h("select", { value: form.architecture, onChange: e => setForm({ ...form, architecture: e.target.value }) },
+              h("option", { value: "mono" }, "mono-agente"), h("option", { value: "multi" }, "multi-agente"))),
+          h("label", null, "Regime de evidência (seed)",
+            h("select", { value: form.seed, onChange: e => setForm({ ...form, seed: e.target.value }) },
+              ["complete", "s10", "x1", "s13"].map(s => h("option", { key: s, value: s }, s)))),
+          h("label", null, "Criticidade do ativo",
+            h("select", { value: form.criticality, onChange: e => setForm({ ...form, criticality: e.target.value }) },
+              ["critical", "high", "medium", "low"].map(s => h("option", { key: s, value: s }, s)))),
+          h("button", { className: "btn", type: "submit", disabled: enviando || !form.case_id },
+            enviando ? "enfileirando…" : "Abrir chamado"),
+          msg && h("div", { className: "msg", style: { color: msg.erro ? "var(--no)" : "var(--ok)" } }, msg.texto)),
+        caso && h("div", { className: "note" }, h("p", null,
+          h("b", null, caso.ticket_id + " · "), caso.message))),
+      h(Panel, { titulo: "Fila de atendimento", hint: "atualiza a cada 5 s" },
+        h("div", { className: "scroll" }, h("table", null,
+          h("thead", null, h("tr", null, h("th", null, "Chamado"), h("th", null, "Arq."),
+            h("th", null, "Estado"), h("th", null, "Erro"))),
+          h("tbody", null, fila.length === 0
+            ? h("tr", null, h("td", { colSpan: 4, className: "vazio" }, "Fila vazia."))
+            : fila.map(t => h("tr", { key: t.task_id },
+                h("td", { className: "mono" }, t.case_id.replace("case_tkt_", "").replace("case_", "")),
+                h("td", { className: "mono mid" }, rotArm(t.arm)),
+                h("td", null, h(Pill, { status: t.state })),
+                h("td", { className: "mono mid" }, t.error_class || "—")))))))),
+    h("div", { className: "note caveat" }, h("p", null,
+      h("b", null, "O chamado entra na fila; quem executa é o worker. "),
+      "Rode ", h("code", null, "uv run agentes run --run-id console"),
+      " para atendê-lo — cada execução consome cota do Gemini.")));
 }
 
-/* ---------------- aplicação ---------------- */
-const VIEWS = [
-  ["resumo", "Resumo", Resumo],
-  ["dose", "Dose-resposta", Dose],
-  ["metricas", "Métricas e vereditos", Metricas],
-  ["trajetorias", `Trajetórias (${E.length})`, Trajetorias],
-  ["limites", "Limitações", Limitacoes],
+/* -------------------------------------------------- tema */
+function useTema() {
+  const [tema, setTema] = useState(() => {
+    try { return localStorage.getItem("tema") || "sistema"; } catch { return "sistema"; }
+  });
+  useEffect(() => {
+    const raiz = document.documentElement;
+    if (tema === "sistema") raiz.removeAttribute("data-theme");
+    else raiz.setAttribute("data-theme", tema);
+    try { localStorage.setItem("tema", tema); } catch { /* modo privado */ }
+  }, [tema]);
+  return [tema, setTema];
+}
+
+/* -------------------------------------------------- aplicação */
+const VISOES = [
+  { id: "geral", rot: "Visão geral", grupo: "Experimento" },
+  { id: "exp", rot: "Métricas e vereditos", grupo: "Experimento" },
+  { id: "exec", rot: "Execuções", grupo: "Operação" },
+  { id: "console", rot: "Console de atendimento", grupo: "Operação" },
 ];
 
 function App() {
-  const idInicial = window.location.hash.slice(1);
-  const [ativa, setAtiva] = useState(VIEWS.some(v => v[0] === idInicial) ? idInicial : "resumo");
-  const [tema, setTema] = useState(() => {
-    try { return localStorage.getItem("dashboard-theme") || "system"; }
-    catch (_) { return "system"; }
-  });
-  const Atual = (VIEWS.find(v => v[0] === ativa) || VIEWS[0])[2];
-
-  const selecionar = useCallback((id, novaEntrada = true) => {
-    setAtiva(id);
-    const hash = `#${id}`;
-    if (novaEntrada) window.history.pushState(null, "", hash);
-    else window.history.replaceState(null, "", hash);
-  }, []);
-
+  const { relatorio, execucoes, carregando, erro, runId, setRunId, runs } = useDados();
+  const [visao, setVisao] = useState(() => (location.hash || "#geral").slice(1));
+  const [tema, setTema] = useTema();
   useEffect(() => {
-    if (!window.location.hash) selecionar(ativa, false);
-    const sincronizar = () => {
-      const id = window.location.hash.slice(1);
-      if (VIEWS.some(v => v[0] === id)) setAtiva(id);
-    };
-    window.addEventListener("hashchange", sincronizar);
-    return () => window.removeEventListener("hashchange", sincronizar);
+    const ouvir = () => setVisao((location.hash || "#geral").slice(1));
+    addEventListener("hashchange", ouvir); return () => removeEventListener("hashchange", ouvir);
   }, []);
+  const ir = id => { location.hash = id; setVisao(id); };
+  const atual = VISOES.find(v => v.id === visao) || VISOES[0];
 
-  useEffect(() => {
-    if (tema === "system") document.documentElement.removeAttribute("data-theme");
-    else document.documentElement.dataset.theme = tema;
-    try { localStorage.setItem("dashboard-theme", tema); }
-    catch (_) { /* Preferência não persistida quando o navegador bloqueia storage. */ }
-  }, [tema]);
+  const corpo = () => {
+    if (erro) return h("div", { className: "note erro" }, h("p", null,
+      h("b", null, "Não foi possível carregar do BFF. "), erro,
+      h("br"), "Confirme que a API está no ar em ", h("code", null, API || "—"), "."));
+    if (carregando || !relatorio) return h("div", { className: "vazio" }, "Carregando…");
+    switch (atual.id) {
+      case "exp": return h(Experimentos, { R: relatorio });
+      case "exec": return h(Execucoes, { execucoes });
+      case "console": return h(Console);
+      default: return h(VisaoGeral, { R: relatorio });
+    }
+  };
 
-  const navegarTeclado = useCallback((evento, indice) => {
-    let proximo = null;
-    if (evento.key === "ArrowRight") proximo = (indice + 1) % VIEWS.length;
-    if (evento.key === "ArrowLeft") proximo = (indice - 1 + VIEWS.length) % VIEWS.length;
-    if (evento.key === "Home") proximo = 0;
-    if (evento.key === "End") proximo = VIEWS.length - 1;
-    if (proximo === null) return;
-    evento.preventDefault();
-    selecionar(VIEWS[proximo][0]);
-    document.getElementById(`tab-${VIEWS[proximo][0]}`)?.focus();
-  }, [selecionar]);
+  const grupos = [...new Set(VISOES.map(v => v.grupo))];
+  return h("div", { className: "app" },
+    h("aside", { className: "side" },
+      h("div", { className: "brand" },
+        h("div", { className: "n" }, "Agentes industriais"),
+        h("div", { className: "s" }, "Inteli × TRACTIAN")),
+      h("nav", { className: "navg" }, grupos.map(g => h(Fragment, { key: g },
+        h("div", { className: "grp" }, g),
+        VISOES.filter(v => v.grupo === g).map(v => h("button", { key: v.id,
+          "aria-current": atual.id === v.id ? "page" : undefined, onClick: () => ir(v.id) },
+          v.rot,
+          v.id === "exec" && execucoes.length > 0 &&
+            h("span", { className: "badge" }, execucoes.length)))))),
+      h("div", { className: "foot" },
+        TEM_API ? "BFF conectado" : "dados embutidos",
+        h("br"), relatorio ? `${relatorio.execucoes} execuções` : "—",
+        META.commit && h(Fragment, null, h("br"), "commit ", META.commit),
+        META.gerado && h(Fragment, null, h("br"), META.gerado))),
 
-  const alternarTema = () => setTema(t => t === "system" ? "light" : t === "light" ? "dark" : "system");
-  const rotuloTema = tema === "system" ? "Sistema" : tema === "light" ? "Claro" : "Escuro";
-
-  return h(Fragment, null,
-    h("div", { className: "appbar" },
-      h("nav", { className: "nav", role: "tablist", "aria-label": "Seções do relatório" },
-        VIEWS.map(([id, rot], indice) => h("button", { key: id, id: `tab-${id}`, role: "tab",
-          "aria-selected": ativa === id, "aria-controls": `view-${id}`, tabIndex: ativa === id ? 0 : -1,
-          onKeyDown: evento => navegarTeclado(evento, indice), onClick: () => selecionar(id) }, rot))),
-      h("button", { className: "theme-toggle", type: "button", onClick: alternarTema,
-        "aria-label": `Tema atual: ${rotuloTema}. Alternar tema.` }, `Tema · ${rotuloTema}`)),
-    h("div", { id: `view-${ativa}`, role: "tabpanel", "aria-labelledby": `tab-${ativa}` },
-      h(Atual, null)));
+    h("div", { className: "main" },
+      h("header", { className: "top" },
+        h("h1", null, atual.rot),
+        h("div", { className: "sp" },
+          TEM_API && runs.length > 0 && h("label", { className: "ctrl" }, "rodada",
+            h("select", { value: runId, onChange: e => setRunId(e.target.value) },
+              runs.map(r => h("option", { key: r.run_id, value: r.run_id },
+                `${r.run_id} (${r.execucoes})`)))),
+          h("label", { className: "ctrl" }, "tema",
+            h("select", { value: tema, onChange: e => setTema(e.target.value), "aria-label": "Tema" },
+              h("option", { value: "sistema" }, "sistema"), h("option", { value: "light" }, "claro"),
+              h("option", { value: "dark" }, "escuro"))))),
+      h("main", { className: "content" }, corpo())));
 }
 
 ReactDOM.createRoot(document.getElementById("app")).render(h(App));

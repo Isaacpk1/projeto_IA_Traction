@@ -1,45 +1,31 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mono ou Multi-Agente</title>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&amp;family=IBM+Plex+Sans+Condensed:wght@600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-  <style>__DASHBOARD_CSS__</style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plataforma de Agentes Industriais</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>__DASHBOARD_CSS__</style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="masthead">
-      <div class="eyebrow">Experimento E1 · arquitetura de agentes</div>
-      <h1>Mono ou multi-agente?</h1>
-      <p class="lede">Suporte técnico industrial sobre análise de vibração. Um agente com 18
-      ferramentas contra um orquestrador com três especialistas, nos mesmos chamados, sob os mesmos
-      níveis de degradação de evidência.</p>
-      <div class="meta">
-        <span><b>rodada</b> <span class="mono">__RUN_ID__</span></span>
-        <span><b>execuções</b> <span class="mono">__EXECUTION_COUNT__</span></span>
-        <span><b>modelo</b> <span class="mono">gemini-2.5-flash · temp 0</span></span>
-        <span><b>prompt</b> <span class="mono">__PROMPT_VERSION__</span></span>
-        <span><b>commit</b> <span class="mono">__COMMIT__</span></span>
-        <span><b>gerado</b> <span class="mono">__GENERATED_AT__</span></span>
-      </div>
-    </header>
-    __NOTICE__
-    <main id="app"><p class="vazio">Carregando dashboard…</p></main>
-    <noscript><div class="note caveat"><p>Este dashboard precisa de JavaScript habilitado.</p></div></noscript>
-    <footer>
-      Gerado por <span class="mono">agentes dashboard</span> a partir dos traces JSONL e do SQLite de
-      métricas. A camada de análise não importa SDK de LLM nem exige chave de API — quem tem os
-      artefatos reproduz estes números.
-    </footer>
-  </div>
-  <script>
-    window.__RELATORIO__ = __REPORT_JSON__;
-    window.__EXECUCOES__ = __EXECUTIONS_JSON__;
-  </script>
-  <script>__DASHBOARD_JS__</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<div id="app"><div class="vazio">Carregando a plataforma…</div></div>
+<noscript><div class="vazio">Esta plataforma precisa de JavaScript habilitado. Os mesmos números
+estão na seção 6 do README do repositório.</div></noscript>
+<script>
+window.__RELATORIO__ = __REPORT_JSON__;
+window.__EXECUCOES__ = __EXECUTIONS_JSON__;
+window.__META__ = {
+  run_id: "__RUN_ID__",
+  execucoes: "__EXECUTION_COUNT__",
+  commit: "__COMMIT__",
+  prompt_version: "__PROMPT_VERSION__",
+  gerado: "__GENERATED_AT__",
+  aviso: "__NOTICE__"
+};
+</script>
+<script>__DASHBOARD_JS__</script>
 </body>
 </html>
