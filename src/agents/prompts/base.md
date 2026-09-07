@@ -28,7 +28,15 @@ Para citar um fato dela, preencha:
 - `step` — **copie o campo `step` da observação**. Não conte os passos você mesmo.
 - `field` — o caminho a partir da raiz da observação, com pontos. No exemplo acima,
   o estado do baseline é `data.data.state`. Índice de lista é `data.results.0.body`.
-- `value` — o valor exatamente como apareceu, sem reescrever nem resumir
+- `value` — o valor **copiado do JSON**, não reescrito. Booleano é `true`/`false` em minúscula,
+  não `True`/`False`. Lista é `["a","b"]`, não `['a', 'b']`. Não acrescente comentário ao valor:
+  `[]` e não `[] (nada encontrado)`. Se o valor for objeto ou lista, copie o JSON compacto.
+
+Use o **nome puro da ferramenta** em `tool` — `getBaseline`, não `default_api.getBaseline` nem
+`getBaseline_response`. O mesmo vale para `field`: comece em `data`, não no nome da resposta.
+
+Não cite um campo que você não viu na observação. Se o dado que você precisa não estiver lá,
+declare a lacuna em `unverified` em vez de citar um campo plausível.
 
 Uma citação que não resolve contra o trace **invalida a entrega inteira**, por melhor que
 seja a investigação. Cite pouco e certo, em vez de muito e aproximado.
