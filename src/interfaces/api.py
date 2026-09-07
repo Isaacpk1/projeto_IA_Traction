@@ -69,6 +69,7 @@ def criar_app() -> FastAPI:
     from src.analysis import load_frame
     from src.analysis.dataset import load_execution_details
     from src.analysis.report import montar_relatorio
+    from src.analysis.triagem import anotar_triagem
     from src.evaluation.degradation import carregar_intensidade
     from src.evaluation.golden.loader import load_golden_dataset
 
@@ -138,9 +139,9 @@ def criar_app() -> FastAPI:
         if chave not in cache:
             df = _quadro(run_id)
             vistos = set(df["execution_id"]) if len(df) else set()
-            cache[chave] = [
-                d for d in load_execution_details(TRACES, run_id=run_id) if d["id"] in vistos
-            ]
+            cache[chave] = anotar_triagem(
+                [d for d in load_execution_details(TRACES, run_id=run_id) if d["id"] in vistos]
+            )
         return cache[chave]
 
     @aplicacao.get("/api/executions/{execution_id}")

@@ -417,6 +417,84 @@ function Console() {
       " para atendê-lo — cada execução consome cota do Gemini.")));
 }
 
+
+/* -------------------------------------------------- triagem */
+const URG_ROT = { alta: ["no", "urgência alta"], media: ["warn", "urgência média"],
+                  baixa: ["unk", "urgência baixa"] };
+const ORDEM_URG = { alta: 0, media: 1, baixa: 2 };
+
+/** Marca **negrito** vindo do briefing sem interpretar HTML de dado. */
+function comEnfase(texto) {
+  return texto.split(/\*\*(.+?)\*\*/g).map((parte, i) =>
+    i % 2 ? h("b", { key: i }, parte) : parte);
+}
+
+function CartaoTriagem({ e }) {
+  const t = e.triagem;
+  const [ab, setAb] = useState(false);
+  const [cls, rot] = URG_ROT[t.urgencia] || URG_ROT.baixa;
+  return h("div", { className: "tri" },
+    h("div", { className: "faixa urg-" + t.urgencia }),
+    h("div", { className: "corpo" },
+      h("div", { className: "cab" },
+        h("h3", null, t.titulo),
+        h("span", { className: "pill " + cls }, h("i", null), rot),
+        h("span", { className: "cid" },
+          `${e.case_id.replace("case_tkt_", "").replace("case_", "")} · ${rotArm(e.arm)} · ${e.seed || "—"}`)),
+      h("ul", { className: "porque" }, t.porque.map((b, i) => h("li", { key: i }, comEnfase(b)))),
+      h("dl", { className: "linhas" },
+        t.verificado.length > 0 && h(Fragment, null,
+          h("dt", null, "já verificado"), h("dd", null, t.verificado.join(" · "))),
+        t.evidencia_frouxa.length > 0 && h(Fragment, null,
+          h("dt", null, "evidência frouxa"), h("dd", null, t.evidencia_frouxa.join(" · "))),
+        t.conflitos.length > 0 && h(Fragment, null,
+          h("dt", null, "conflitos"), h("dd", null, t.conflitos.join(" · ")))),
+      h("div", { className: "decidir" }, h("b", null, "o que decidir"), t.decidir),
+      h("button", { className: "abrir", onClick: () => setAb(v => !v), "aria-expanded": ab },
+        ab ? "esconder trajetória" : "ver trajetória completa"),
+      ab && h(Detalhe, { e })));
+}
+
+function Triagem({ execucoes }) {
+  const [urg, setUrg] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const pendentes = useMemo(
+    () => execucoes.filter(e => e.triagem && e.triagem.precisa_humano)
+      .sort((a, b) => ORDEM_URG[a.triagem.urgencia] - ORDEM_URG[b.triagem.urgencia]),
+    [execucoes]);
+  const motivos = useMemo(
+    () => [...new Set(pendentes.map(e => e.triagem.motivo))].sort(), [pendentes]);
+  const vis = useMemo(() => pendentes.filter(e =>
+    (!urg || e.triagem.urgencia === urg) && (!motivo || e.triagem.motivo === motivo)),
+    [pendentes, urg, motivo]);
+  const conta = u => pendentes.filter(e => e.triagem.urgencia === u).length;
+
+  return h(Fragment, null,
+    h("div", { className: "kpis" },
+      h(Kpi, { k: "Precisam de humano", v: pendentes.length,
+        n: `de ${execucoes.length} atendimentos` }),
+      h(Kpi, { k: "Urgência alta", v: conta("alta"), n: "ação bloqueada ou sem resolução",
+        cor: "var(--no)" }),
+      h(Kpi, { k: "Urgência média", v: conta("media"), n: "conclusão não verificável ou conflito",
+        cor: "var(--warn)" }),
+      h(Kpi, { k: "Resolvidos sozinhos", v: execucoes.length - pendentes.length,
+        n: "entregues sem intervenção", cor: "var(--ok)" })),
+
+    h("section", { className: "panel" },
+      h("div", { className: "filtros" },
+        h("select", { value: urg, onChange: e => setUrg(e.target.value), "aria-label": "Urgência" },
+          h("option", { value: "" }, "todas as urgências"),
+          ["alta", "media", "baixa"].map(u => h("option", { key: u, value: u }, u))),
+        h("select", { value: motivo, onChange: e => setMotivo(e.target.value), "aria-label": "Motivo" },
+          h("option", { value: "" }, "todos os motivos"),
+          motivos.map(m => h("option", { key: m, value: m }, m.replace(/_/g, " ")))),
+        h("span", { className: "cont" }, `${vis.length} de ${pendentes.length}`)),
+      h("div", { className: "body", style: { maxHeight: "70vh", overflow: "auto" } },
+        vis.length === 0
+          ? h("div", { className: "vazio" }, "Nenhum atendimento nesta faixa.")
+          : vis.map(e => h(CartaoTriagem, { e, key: e.id })))));
+}
+
 /* -------------------------------------------------- tema */
 function useTema() {
   const [tema, setTema] = useState(() => {
@@ -435,6 +513,7 @@ function useTema() {
 const VISOES = [
   { id: "geral", rot: "Visão geral", grupo: "Experimento" },
   { id: "exp", rot: "Métricas e vereditos", grupo: "Experimento" },
+  { id: "triagem", rot: "Triagem", grupo: "Operação" },
   { id: "exec", rot: "Execuções", grupo: "Operação" },
   { id: "console", rot: "Console de atendimento", grupo: "Operação" },
 ];
@@ -457,6 +536,7 @@ function App() {
     if (carregando || !relatorio) return h("div", { className: "vazio" }, "Carregando…");
     switch (atual.id) {
       case "exp": return h(Experimentos, { R: relatorio });
+      case "triagem": return h(Triagem, { execucoes });
       case "exec": return h(Execucoes, { execucoes });
       case "console": return h(Console);
       default: return h(VisaoGeral, { R: relatorio });
@@ -475,7 +555,10 @@ function App() {
           "aria-current": atual.id === v.id ? "page" : undefined, onClick: () => ir(v.id) },
           v.rot,
           v.id === "exec" && execucoes.length > 0 &&
-            h("span", { className: "badge" }, execucoes.length)))))),
+            h("span", { className: "badge" }, execucoes.length),
+          v.id === "triagem" && execucoes.length > 0 &&
+            h("span", { className: "badge" },
+              execucoes.filter(x => x.triagem && x.triagem.precisa_humano).length)))))),
       h("div", { className: "foot" },
         TEM_API ? "BFF conectado" : "dados embutidos",
         h("br"), relatorio ? `${relatorio.execucoes} execuções` : "—",

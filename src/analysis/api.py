@@ -17,6 +17,7 @@ from src.analysis.hypotheses import (
     intervalo_binomial,
 )
 from src.analysis.scorers import score, score_stability
+from src.analysis.triagem import anotar_triagem, classificar
 
 __all__ = [
     "MARGEM_NAO_INFERIORIDADE",
@@ -29,6 +30,8 @@ __all__ = [
     "bootstrap_por_caso",
     "intervalo_binomial",
     "load_executions",
+    "anotar_triagem",
+    "classificar",
     "load_frame",
     "score",
     "score_stability",

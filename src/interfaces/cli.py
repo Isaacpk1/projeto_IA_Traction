@@ -361,6 +361,7 @@ def dashboard(
     from src.analysis import load_frame
     from src.analysis.dataset import load_execution_details
     from src.analysis.report import montar_relatorio
+    from src.analysis.triagem import anotar_triagem
     from src.evaluation.degradation import carregar_intensidade
     from src.interfaces.dashboard import escrever_dashboard, render_dashboard
 
@@ -382,11 +383,9 @@ def dashboard(
     # O explorador so mostra o que entrou na analise; um trace fora do desenho na
     # tela e um convite a ler resultado que nenhuma metrica conta.
     vistos = set(df["execution_id"]) if len(df) else set()
-    execucoes = [
-        detalhe
-        for detalhe in load_execution_details(traces, run_id=run_id)
-        if detalhe["id"] in vistos
-    ]
+    execucoes = anotar_triagem(
+        [d for d in load_execution_details(traces, run_id=run_id) if d["id"] in vistos]
+    )
     html = render_dashboard(
         relatorio,
         execucoes=execucoes,
