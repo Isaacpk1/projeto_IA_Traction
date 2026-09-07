@@ -245,3 +245,23 @@ def test_acao_continua_exigindo_toda_a_evidencia():
 
     assert guard.check(_trace_com_evidencia("agir", 5, 6)).guardrail_verdict == "blocked"
     assert guard.check(_trace_com_evidencia("agir", 6, 6)).guardrail_verdict == "pass"
+
+
+def test_permissao_e_lida_da_raiz_do_getCurrentUser():
+    """`getCurrentUser` não usa o envelope; procurar só em `data.permissions`
+    fazia esta checagem falhar sempre — e com ela nenhuma ação de impacto podia
+    ser autorizada por agente nenhum."""
+    from src.agents.pre_action_guard import PreActionGuardProvider
+    from src.core.contracts.trace import ExecutionTrace, TraceStep
+
+    def com(resultado):
+        trace = ExecutionTrace(
+            run_id="r", task_id="t", execution_id="e", case_id="c",
+            architecture="mono", arm="A",
+            steps=[TraceStep(step=0, agent="a", tool="getCurrentUser", result=resultado)],
+        )
+        return PreActionGuardProvider(None, trace)._permissions()
+
+    assert com({"permissions": ["read", "action_low"]}) == {"read", "action_low"}
+    assert com({"data": {"permissions": ["read"]}}) == {"read"}
+    assert com({"role": "tech"}) == set()

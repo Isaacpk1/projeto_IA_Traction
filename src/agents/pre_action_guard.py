@@ -93,9 +93,18 @@ class PreActionGuardProvider:
         for step in reversed(self.trace.steps):
             if step.tool != "getCurrentUser" or step.result is None or step.error is not None:
                 continue
-            try:
-                value = resolve_field(step.result, "data.permissions")
-            except KeyError:
+            # `getCurrentUser` devolve as permissões na raiz do resultado; as demais
+            # tools vêm no envelope `{mode, notes, data}`. Procurar só em
+            # `data.permissions` fazia esta checagem falhar **sempre**, e com ela
+            # nenhuma ação de impacto podia ser autorizada por agente nenhum.
+            value = None
+            for caminho in ("permissions", "data.permissions", "data.data.permissions"):
+                try:
+                    value = resolve_field(step.result, caminho)
+                except KeyError:
+                    continue
+                break
+            if value is None:
                 return set()
             return {str(item) for item in value} if isinstance(value, list) else set()
         return set()
