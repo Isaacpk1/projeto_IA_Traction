@@ -55,6 +55,9 @@ function useDados() {
         const rs = await fetch(`${API}/api/runs`).then(r => r.json());
         if (!vivo) return;
         setRuns(rs);
+        // A API ordena por utilidade; abrir na primeira evita cair numa rodada de
+        // experimento quando a pergunta do operador é sobre o atendimento de hoje.
+        if (rs.length && !rs.some(r => r.run_id === runId)) { setRunId(rs[0].run_id); return; }
         const [rel, ex] = await Promise.all([
           fetch(`${API}/api/report?run_id=${runId}&e2_run_id=e2_v1`).then(r => r.json()),
           fetch(`${API}/api/executions?run_id=${runId}`).then(r => r.json()),

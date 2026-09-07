@@ -120,10 +120,15 @@ def criar_app() -> FastAPI:
             achadas.append({
                 "run_id": pasta.name,
                 "execucoes": len(list(traces.glob("*.jsonl"))) if traces.exists() else 0,
-                "experimento": "E2" if "e2" in pasta.name
-                else "Atendimento" if pasta.name.startswith("console") else "E1",
+                # `startswith` e não `in`: "console2" contém "e2".
+                "experimento": (
+                    "Atendimento" if pasta.name.startswith("console")
+                    else "E2" if pasta.name.startswith("e2") else "E1"
+                ),
             })
-        return sorted(achadas, key=lambda r: r["execucoes"], reverse=True)
+        # Ordem do seletor = ordem de utilidade: a operação primeiro, o experimento depois.
+        ordem = {nome: i for i, nome in enumerate(RODADAS_VISIVEIS)}
+        return sorted(achadas, key=lambda r: ordem.get(r["run_id"], 99))
 
     @aplicacao.get("/api/cases")
     def cases() -> list[dict]:
