@@ -28,17 +28,23 @@ class ReactOutcome:
     error_class: str | None = None
 
 
-def _observation(result: ToolResult) -> str:
-    return json.dumps(
-        {
-            "data": result.data,
-            "error": result.error,
-            "error_class": result.error_class,
-            "status_code": result.status_code,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
+def _observation(result: ToolResult, step: int | None = None) -> str:
+    """Devolve a observação como o modelo a recebe.
+
+    `step` vai junto de propósito. Sem ele o agente precisa **contar** as chamadas
+    para citar evidência — e no braço multi isso é impossível, porque cada papel
+    conta no seu próprio laço enquanto o trace numera globalmente. Devolver o
+    número aqui transforma adivinhação em cópia.
+    """
+    corpo = {
+        "data": result.data,
+        "error": result.error,
+        "error_class": result.error_class,
+        "status_code": result.status_code,
+    }
+    if step is not None:
+        corpo["step"] = step
+    return json.dumps(corpo, ensure_ascii=False, sort_keys=True)
 
 
 def _contract_error(call: ToolCall, message: str) -> ToolResult:
@@ -110,7 +116,7 @@ async def react_loop(
                         role="tool",
                         name=call.name,
                         tool_call_id=call.call_id,
-                        content=_observation(result),
+                        content=_observation(result, tracer.trace.steps[-1].step),
                     )
                 )
             continue
@@ -156,7 +162,7 @@ async def react_loop(
                     role="tool",
                     name=call.name,
                     tool_call_id=call.call_id,
-                    content=_observation(result),
+                    content=_observation(result, tracer.trace.steps[-1].step),
                 )
             )
 

@@ -23,7 +23,7 @@ from src.core.ports.trace_sink import TraceSink
 
 __all__ = ["MonoArchitecture", "PROMPT_VERSION"]
 
-PROMPT_VERSION = "1.1.0"
+PROMPT_VERSION = "1.2.0"
 
 
 def _base_prompt() -> str:
