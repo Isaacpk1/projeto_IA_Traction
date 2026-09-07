@@ -43,7 +43,13 @@ def classificar(execucao: dict) -> dict[str, Any]:
     resolucao = execucao.get("resolucao") or {}
     guard = execucao.get("guard") or {}
     decisao = resolucao.get("decision")
+    # V1 recomputada vence o veredito gravado: o bloqueio antigo pode ter sido efeito
+    # de um comparador que já foi corrigido, e insistir nele mandaria o analista revisar
+    # um problema que não existe mais.
+    v1_atual = guard.get("v1_atual")
     bloqueado = guard.get("verdict") == "blocked"
+    if v1_atual is True and list(guard.get("failed") or []) == ["V1"]:
+        bloqueado = False
     checagens = list(guard.get("failed") or [])
     evidencias = list(resolucao.get("evidencias") or [])
     nao_resolvem = [e for e in evidencias if not e.get("resolve")]

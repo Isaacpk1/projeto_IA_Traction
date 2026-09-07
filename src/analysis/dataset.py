@@ -218,10 +218,19 @@ def load_execution_details(
             "llm_calls": trace.llm_calls,
             "tokens_in": trace.tokens_in,
             "duracao_s": round((trace.duration_ms or 0) / 1000, 1),
+            # O veredito gravado é do matcher vigente **na hora da execução**. Depois de
+            # corrigir a resolução de evidência, ele fica desatualizado — e mostrar um
+            # bloqueio que já não se sustenta seria mentir sobre o estado atual. `v1_atual`
+            # recomputa a checagem V1 contra o trace com o comparador de hoje.
             "guard": {
                 "verdict": entregue.get("guardrail_verdict"),
                 "failed": entregue.get("guardrail_failed_checks") or [],
                 "decision": entregue.get("decision"),
+                "v1_atual": (
+                    all(evidence_matches(ref, trace) for ref in resolucao.evidence_cited)
+                    if resolucao and resolucao.evidence_cited
+                    else None
+                ),
             },
             "passos": [
                 {
