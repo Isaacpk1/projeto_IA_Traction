@@ -36,12 +36,18 @@ INTENSIDADE = RAIZ / "src" / "evaluation" / "golden" / "degradation_intensity.js
 #: O recorte de E1 que a análise usa. Manter aqui evita que o front invente o seu.
 E1_SEEDS_ANALISE = ("complete", "s10", "x1", "s13")
 
+#: Rodadas de calibração e pilotos ficam fora da plataforma. Elas existem no disco
+#: para auditoria, mas oferecê-las no seletor convida a ler resultado de configuração
+#: que já foi descartada.
+RODADAS_VISIVEIS = ("console2", "console", "e1_v1", "e2_v1")
+
 
 class TicketNovo(BaseModel):
     """Chamado submetido pela interface — RF29."""
 
     case_id: str = Field(description="Caso do catálogo a atender")
-    architecture: str = Field(default="mono", pattern="^(mono|multi)$")
+    # A plataforma opera o mono-agente. O multi existe no experimento, e ali fica.
+    architecture: str = Field(default="mono", pattern="^mono$")
     seed: str = Field(default="complete")
     criticality: str = Field(default="medium")
 
@@ -108,13 +114,14 @@ def criar_app() -> FastAPI:
         """Rodadas com métricas disponíveis, mais recentes primeiro."""
         achadas = []
         for pasta in sorted(RUNS.glob("*")):
-            if not (pasta / "metrics.db").exists():
+            if pasta.name not in RODADAS_VISIVEIS or not (pasta / "metrics.db").exists():
                 continue
             traces = TRACES / pasta.name
             achadas.append({
                 "run_id": pasta.name,
                 "execucoes": len(list(traces.glob("*.jsonl"))) if traces.exists() else 0,
-                "experimento": "E2" if "e2" in pasta.name else "E1",
+                "experimento": "E2" if "e2" in pasta.name
+                else "Atendimento" if pasta.name.startswith("console") else "E1",
             })
         return sorted(achadas, key=lambda r: r["execucoes"], reverse=True)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from src.core.contracts.resolution import Delivered, GuardCheck
+from src.core.contracts.resolution import Delivered, GuardCheck, Resolution
 from src.core.contracts.trace import ExecutionTrace
 from src.core.evidence import evidence_matches, resolve_field
 
@@ -32,6 +32,28 @@ class PreDeliveryGuard:
                     pass
         return False
 
+    @staticmethod
+    def _fundamentada(resolution: Resolution, trace: ExecutionTrace) -> bool:
+        """V1 — a conclusão se apoia em evidência verificável?
+
+        A pergunta é sobre a **conclusão**, não sobre cada citação isolada. Uma
+        resolução com cinco de seis referências conferindo está fundamentada; a
+        sexta mal escrita não a torna infundada, e recusá-la por isso descarta
+        trabalho correto — foi o que fez o sistema escalar quase tudo.
+
+        `agir` é a exceção e continua exigindo todas. Ação sobre o ativo é
+        irreversível na prática, e ali o custo de aceitar uma referência frouxa
+        é maior que o de escalar à toa.
+        """
+        referencias = resolution.evidence_cited
+        if not referencias:
+            # Sem citação nenhuma não há o que verificar; V2 e V3 seguem valendo.
+            return True
+        conferem = sum(evidence_matches(r, trace) for r in referencias)
+        if resolution.decision == "agir":
+            return conferem == len(referencias)
+        return conferem * 2 > len(referencias)
+
     def check(self, trace: ExecutionTrace) -> Delivered:
         resolution = trace.resolution
         if resolution is None:
@@ -43,7 +65,7 @@ class PreDeliveryGuard:
             )
 
         failed: list[GuardCheck] = []
-        if any(not evidence_matches(reference, trace) for reference in resolution.evidence_cited):
+        if not self._fundamentada(resolution, trace):
             failed.append("V1")
 
         text = "\n".join(

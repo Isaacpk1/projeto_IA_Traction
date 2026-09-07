@@ -191,3 +191,57 @@ def test_pre_delivery_preserva_resolucao_valida():
 
     assert delivered.guardrail_verdict == "pass"
     assert delivered.decision == "escalar"
+
+
+def _trace_com_evidencia(decisao, quantas_conferem, total):
+    """Resolução com `total` citações, das quais `quantas_conferem` resolvem."""
+    from src.core.contracts.resolution import EvidenceRef, Resolution
+    from src.core.contracts.trace import ExecutionTrace, TraceStep
+
+    passos = [
+        TraceStep(step=i, agent="agent", tool="getBaseline", result={"data": {"state": f"s{i}"}})
+        for i in range(total)
+    ]
+    refs = [
+        EvidenceRef(tool="getBaseline", field="data.state",
+                    value=f"s{i}" if i < quantas_conferem else "valor-inexistente", step=i)
+        for i in range(total)
+    ]
+    return ExecutionTrace(
+        run_id="r", task_id="t", execution_id="e", case_id="c", architecture="mono", arm="A",
+        steps=passos,
+        resolution=Resolution(decision=decisao, justification="j" * 25, evidence_cited=refs),
+    )
+
+
+def test_conclusao_com_maioria_da_evidencia_conferindo_e_entregue():
+    """Uma citação mal escrita entre seis não torna a conclusão infundada.
+
+    Exigir todas fazia o sistema recusar trabalho correto e escalar quase tudo.
+    """
+    from src.agents.pre_delivery_guard import PreDeliveryGuard
+
+    entregue = PreDeliveryGuard().check(_trace_com_evidencia("orientar", 5, 6))
+
+    assert entregue.guardrail_verdict == "pass"
+    assert entregue.decision == "orientar"
+
+
+def test_conclusao_sem_maioria_e_bloqueada():
+    from src.agents.pre_delivery_guard import PreDeliveryGuard
+
+    entregue = PreDeliveryGuard().check(_trace_com_evidencia("orientar", 2, 6))
+
+    assert entregue.guardrail_verdict == "blocked"
+    assert entregue.guardrail_failed_checks == ["V1"]
+    assert entregue.decision == "escalar"
+
+
+def test_acao_continua_exigindo_toda_a_evidencia():
+    """Ação sobre o ativo é irreversível na prática; ali o rigor se paga."""
+    from src.agents.pre_delivery_guard import PreDeliveryGuard
+
+    guard = PreDeliveryGuard()
+
+    assert guard.check(_trace_com_evidencia("agir", 5, 6)).guardrail_verdict == "blocked"
+    assert guard.check(_trace_com_evidencia("agir", 6, 6)).guardrail_verdict == "pass"

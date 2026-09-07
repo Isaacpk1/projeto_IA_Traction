@@ -17,6 +17,10 @@ import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.core.contracts.trace import ExecutionTrace
 
 __all__ = [
     "COLUNAS_BASE",
@@ -177,6 +181,24 @@ def load_frame(
     return pd.DataFrame.from_records(registros)
 
 
+def _v1_atual(resolucao: Any, trace: ExecutionTrace) -> bool | None:
+    """Reproduz a regra do PreDeliveryGuard sem importar `agents/`.
+
+    A duplicação incomoda, mas o contrato de camadas proíbe `analysis` conhecer
+    `agents`, e mostrar um veredito diferente do que o guard aplicaria seria pior
+    que repetir cinco linhas.
+    """
+    from src.core.evidence import evidence_matches
+
+    referencias = getattr(resolucao, "evidence_cited", None) if resolucao else None
+    if not referencias:
+        return None
+    conferem = sum(evidence_matches(r, trace) for r in referencias)
+    if getattr(resolucao, "decision", None) == "agir":
+        return conferem == len(referencias)
+    return conferem * 2 > len(referencias)
+
+
 def _resumo(valor: object, limite: int = 260) -> str:
     """Recorta o retorno de uma tool para caber na página sem virar dump."""
     texto = json.dumps(valor, ensure_ascii=False) if not isinstance(valor, str) else valor
@@ -226,11 +248,7 @@ def load_execution_details(
                 "verdict": entregue.get("guardrail_verdict"),
                 "failed": entregue.get("guardrail_failed_checks") or [],
                 "decision": entregue.get("decision"),
-                "v1_atual": (
-                    all(evidence_matches(ref, trace) for ref in resolucao.evidence_cited)
-                    if resolucao and resolucao.evidence_cited
-                    else None
-                ),
+                "v1_atual": _v1_atual(resolucao, trace),
             },
             "passos": [
                 {

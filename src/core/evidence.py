@@ -50,6 +50,31 @@ def _text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _mesmo_valor(observado: Any, citado: str) -> bool:
+    """Compara o fato, não a formatação com que foi escrito.
+
+    `["read", "action_low"]` e `["read","action_low"]` são o mesmo dado; `12` e
+    `12.0` também. Reprovar por espaço depois da vírgula mediria a serialização
+    do modelo, não se a evidência existe — e o custo desse rigor é bloquear uma
+    entrega cuja conclusão está correta.
+    """
+    if _text(observado) == citado:
+        return True
+    alvo = citado.strip()
+    try:
+        return json.loads(json.dumps(observado)) == json.loads(alvo)
+    except (ValueError, TypeError):
+        pass
+    if isinstance(observado, bool):
+        return alvo.lower() == str(observado).lower()
+    if isinstance(observado, int | float):
+        try:
+            return float(alvo) == float(observado)
+        except ValueError:
+            return False
+    return False
+
+
 #: O Gemini expõe as tools sob um namespace e nomeia o retorno com sufixo. O modelo
 #: cita no dialeto que vê — `default_api.getBaseline`, `getBaseline_response` — e
 #: recusar isso mediria a convenção do SDK, não se a evidência existe. A identidade
@@ -91,6 +116,6 @@ def evidence_matches(reference: EvidenceRef, trace: ExecutionTrace) -> bool:
                 actual = resolve_field(shape, caminho)
             except (KeyError, TypeError):
                 continue
-            if _text(actual) == reference.value:
+            if _mesmo_valor(actual, reference.value):
                 return True
     return False
