@@ -11,6 +11,10 @@ const { useState, useMemo, useCallback, useEffect, createElement: h, Fragment } 
 const API = (() => {
   const meta = typeof window !== "undefined" ? window.__API_BASE__ : null;
   if (meta) return meta.replace(/\/$/, "");
+  // Dados embutidos vencem a heurística de porta. Ela existia para o `npm run dev`
+  // achar o BFF sozinho, mas disparava também quando o front já tinha o relatório
+  // em mãos — e aí a página abria com "Failed to fetch" tendo o dado do lado.
+  if (typeof window !== "undefined" && window.__RELATORIO__) return null;
   if (typeof location !== "undefined" && location.port === "5173") return "http://127.0.0.1:8010";
   return null;
 })();
@@ -75,6 +79,31 @@ function useDados() {
 }
 
 /* -------------------------------------------------- gráficos */
+function BarrasMetricas({ R, braco }) {
+  const escolhidas = ["M4", "M8", "M6", "M2", "M1", "M16"];
+  const linhas = escolhidas
+    .map(id => R.metricas.find(m => m.id === id))
+    .filter(m => m && m.por_braco[braco] != null && m.id !== "M15")
+    .map(m => ({ id: m.id, nome: m.nome, v: m.por_braco[braco] }));
+  if (!linhas.length) return h("div", { className: "vazio" }, "Sem métricas nesta rodada.");
+  const W = 720, alt = 34, m = { t: 10, r: 56, b: 10, l: 210 };
+  const iw = W - m.l - m.r, H = m.t + linhas.length * alt + m.b;
+  const mono = "IBM Plex Mono, monospace";
+  const k = [];
+  linhas.forEach((l, i) => {
+    const y = m.t + i * alt + 6, hb = 16;
+    k.push(h("text", { key: "n" + i, x: m.l - 12, y: y + 12, fill: "var(--ink-2)", fontSize: 12,
+      textAnchor: "end" }, l.nome));
+    k.push(h("rect", { key: "f" + i, x: m.l, y, width: iw, height: hb, rx: 3,
+      fill: "var(--rule)", opacity: 0.35 }));
+    k.push(h("rect", { key: "b" + i, x: m.l, y, width: Math.max(2, iw * l.v), height: hb, rx: 3,
+      fill: "var(--arm-a)" }));
+    k.push(h("text", { key: "v" + i, x: m.l + iw + 10, y: y + 12, fill: "var(--ink)",
+      fontSize: 12, fontFamily: mono }, pct(l.v)));
+  });
+  return h("svg", { viewBox: `0 0 ${W} ${H}`, style: { width: "100%", height: "auto" } }, k);
+}
+
 function DoseChart({ pontos }) {
   if (!pontos || !pontos.length) return h("div", { className: "vazio" }, "Sem dados de dose.");
   const W = 720, H = 300, m = { t: 16, r: 20, b: 48, l: 50 };
@@ -152,24 +181,55 @@ function VisaoGeral({ R }) {
   const h1 = R.hipoteses.find(x => x.id === "H1");
   const h2 = R.hipoteses.find(x => x.id === "H2");
   const p = R.pareado_por_caso;
-  const A = R.bracos.A || {}, B = R.bracos.B || {};
-  const conf = (A.n && B.n) ? ((A.concluidas + B.concluidas) / (A.n + B.n)) : null;
+  // Rodadas de braço único — a suíte de expansão — não têm o contraste A/B do E1.
+  // Antes o painel mostrava travessão em tudo, como se não houvesse dado; o dado está
+  // lá, só não é um par. Aqui ele cai para os números do braço que existe e diz que a
+  // pergunta de H1 não se aplica, em vez de fingir uma comparação que ninguém rodou.
+  const chaves = Object.keys(R.bracos || {});
+  const solo = (!R.bracos.A && !R.bracos.B && chaves.length === 1) ? chaves[0] : null;
+  const A = solo ? R.bracos[solo] : (R.bracos.A || {});
+  const B = solo ? {} : (R.bracos.B || {});
+  const m4A = solo ? m4.por_braco[solo] : m4.por_braco.A;
+  const mSolo = (id) => {
+    const m = R.metricas.find(x => x.id === id);
+    return m ? m.por_braco[solo] : null;
+  };
+  const conf = solo
+    ? (A.n ? A.concluidas / A.n : null)
+    : ((A.n && B.n) ? ((A.concluidas + B.concluidas) / (A.n + B.n)) : null);
   const indistinguivel = !p || p.ic_low == null || (p.ic_low <= 0 && p.ic_high >= 0);
 
   return h(Fragment, null,
     h(AvisoParcial, null),
     h("div", { className: "kpis" },
-      h(Kpi, { k: "Execuções analisadas", v: R.execucoes, n: `${A.n || 0} mono · ${B.n || 0} multi` }),
-      h(Kpi, { k: "Acerto de decisão · mono", v: pct(m4.por_braco.A), n: "M4", cor: "var(--arm-a)" }),
-      h(Kpi, { k: "Acerto de decisão · multi", v: pct(m4.por_braco.B), n: "M4", cor: "var(--arm-b)" }),
-      h(Kpi, { k: "Conformidade", v: pct(conf), n: "execuções concluídas sem erro" })),
+      h(Kpi, { k: "Execuções analisadas", v: R.execucoes,
+        n: solo ? `braço único: ${solo}` : `${A.n || 0} mono · ${B.n || 0} multi` }),
+      h(Kpi, { k: solo ? "Acerto de decisão" : "Acerto de decisão · mono",
+        v: pct(m4A), n: "M4", cor: "var(--arm-a)" }),
+      solo ? null
+        : h(Kpi, { k: "Acerto de decisão · multi", v: pct(m4.por_braco.B), n: "M4",
+            cor: "var(--arm-b)" }),
+      h(Kpi, { k: "Conformidade", v: pct(conf), n: "execuções concluídas sem erro" }),
+      // Num braço único não há contraste para ocupar o painel, e sobra espaço para o
+      // que a operação precisa ver: se a resposta é confiável, se ela está ancorada, e
+      // se as ações de impacto foram seguras. São as métricas que mudam conduta.
+      ...(solo ? [
+        h(Kpi, { k: "Evidência resolvível", v: pct(mSolo("M6")), n: "M6" }),
+        h(Kpi, { k: "Sem alucinação de evidência", v: pct(mSolo("M8")), n: "M8" }),
+        h(Kpi, { k: "Custo médio", v: num(mSolo("M15")), n: "M15 · tokens por execução" }),
+      ] : [])),
 
     h(Panel, { titulo: "Veredito da pergunta central", hint: "H1 · P1.1" },
       h("p", { style: { fontSize: 17, color: "var(--ink)" } },
-        indistinguivel
-          ? "Mono e multi não se distinguem nesta amostra."
-          : `A arquitetura ${p.diferenca_media > 0 ? "multi" : "mono"}-agente acerta mais.`),
-      h("p", null, indistinguivel
+        solo
+          ? "Esta rodada tem um braço só — a comparação entre arquiteturas não se aplica."
+          : indistinguivel
+            ? "Mono e multi não se distinguem nesta amostra."
+            : `A arquitetura ${p.diferenca_media > 0 ? "multi" : "mono"}-agente acerta mais.`),
+      solo
+        ? h("p", null, `Braço \`${solo}\` com ${A.n || 0} execuções. Para responder H1 é `
+            + "preciso rodar os dois braços sobre os mesmos casos.")
+        : h("p", null, indistinguivel
         ? `A diferença pareada por caso é ${fmt(p && p.diferenca_media)} com IC95 ` +
           `[${fmt(p && p.ic_low)} · ${fmt(p && p.ic_high)}] — cruza o zero.`
         : `Diferença pareada de ${fmt(p.diferenca_media)}, IC95 [${fmt(p.ic_low)} · ${fmt(p.ic_high)}].`),
@@ -185,11 +245,14 @@ function VisaoGeral({ R }) {
           " com a degradação — não que ela lidera. O efeito principal é negativo."))),
 
     h("div", { className: "grid2" },
-      h(Panel, { titulo: "Dose-resposta", hint: "M4 × intensidade" },
-        h("div", { className: "legend" },
-          h("span", null, h("i", { style: { background: "var(--arm-a)" } }), "mono"),
-          h("span", null, h("i", { style: { background: "var(--arm-b)" } }), "multi")),
-        h(DoseChart, { pontos: R.dose_resposta })),
+      solo
+        ? h(Panel, { titulo: "Qualidade da resolução", hint: "por métrica" },
+            h(BarrasMetricas, { R, braco: solo }))
+        : h(Panel, { titulo: "Dose-resposta", hint: "M4 × intensidade" },
+            h("div", { className: "legend" },
+              h("span", null, h("i", { style: { background: "var(--arm-a)" } }), "mono"),
+              h("span", null, h("i", { style: { background: "var(--arm-b)" } }), "multi")),
+            h(DoseChart, { pontos: R.dose_resposta })),
       h(Panel, { titulo: "Custo por execução" },
         h("table", null, h("tbody", null,
           [["Chamadas de LLM", fmt(A.llm_calls, 1), fmt(B.llm_calls, 1)],
@@ -515,10 +578,8 @@ function useTema() {
 /* -------------------------------------------------- aplicação */
 const VISOES = [
   { id: "geral", rot: "Visão geral", grupo: "Experimento" },
-  { id: "exp", rot: "Métricas e vereditos", grupo: "Experimento" },
   { id: "triagem", rot: "Triagem", grupo: "Operação" },
   { id: "exec", rot: "Execuções", grupo: "Operação" },
-  { id: "console", rot: "Console de atendimento", grupo: "Operação" },
 ];
 
 function App() {
