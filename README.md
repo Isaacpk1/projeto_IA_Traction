@@ -11,22 +11,24 @@ avaliação** que mede sua confiabilidade.
 > O mesmo worker que processa um ticket de cliente processa um caso da suíte, pelo mesmo caminho de
 > código (RF39) — é isso que garante que a avaliação mede o sistema real.
 
-> **Status em 06/09/2026.** O experimento foi executado com LLM real contra a API industrial.
+> **Status em 08/09/2026.** O experimento foi executado com LLM real contra a API industrial.
 > **E2 concluído** — 50 execuções, veredito escrito para H2 em [§6.3](#63-e2--segurança-h2).
 > **E1 parcial** — 157 tentativas registradas (150 concluídas e 7 falhas de contrato) das 544
 > previstas; H1 permanece sem veredito final.
 > **E3 e E4 não executados**, com registro explícito em [§6.6](#66-e3-e-e4--registro-de-não-execução).
-> O juiz LLM não foi executado e nenhuma métrica de rubrica é reportada (L19).
+> O pipeline do juiz LLM está implementado, mas ainda não foi executado nem meta-avaliado; nenhuma
+> métrica de rubrica é reportada (L19).
 > Cronograma, estratégia de testes e plano de contingência em
 > [`docs/14-roadmap-e-testes.md`](docs/14-roadmap-e-testes.md).
 
 **Implementado:** contratos e portas do núcleo, fakes e invariantes arquiteturais, camada OpenAPI
 com overlay, agente mono e multi-agente com handoff tipado, adaptador Gemini com rate limit e cota
 durável, trace JSONL, fila SQLite com lease e retomada, guarda de isolamento, guardrails
-pré-ação/pré-entrega, scorers M1–M16 com repositório versionado, intensidade de degradação, testes
-de hipótese (dose-resposta, Wilson, McNemar, não-inferioridade) e o runner CLI que amarra tudo.
+pré-ação/pré-entrega, scorers M1–M16 com repositório versionado, intensidade de degradação, juiz LLM
+estruturado com cache, testes de hipótese (dose-resposta, Wilson, McNemar, não-inferioridade) e o
+runner CLI que amarra tudo.
 
-**Não implementado:** juiz LLM e meta-avaliação (L19), BFF, console de atendimento e Compose.
+**Não implementado:** meta-avaliação humana do juiz (L19), BFF, console de atendimento e Compose.
 Ingestão de tickets e sessão multi-turno permanecem na arquitetura-alvo, não no código. O dashboard
 React de resultados e inspeção de traces está implementado. A estrutura descrita abaixo inclui
 componentes planejados; §3 distingue o que executa hoje.
@@ -274,7 +276,22 @@ uv run agentes rescore --run-id e1_v1 --metrics artifacts/runs/e1_v1/metrics.db
 Recomputa M1–M16 sobre os traces gravados. **Não gasta cota**: corrigir um scorer não deveria
 custar uma rodada nova. É o retorno concreto de "o trace é o contrato" — ver §6.5.
 
-#### Passo 6 — relatório visual
+#### Passo 6 — aplicar LLM-as-a-judge
+
+Defina `GROQ_API_KEY` no `.env` e use um provedor diferente daquele que executou o agente:
+
+```bash
+uv run agentes judge --run-id e1_v1 \
+  --judgments artifacts/runs/e1_v1/judgments.db --max-executions 10
+```
+
+O juiz aplica oito critérios binários em uma chamada estruturada por execução. A aplicabilidade é
+decidida em código, resultados `not_applicable` não viram falha, e a chave
+`(execution_id, criterion_id, rubric_version, judge_model)` torna o comando idempotente. O juiz
+recebe somente chamado, resolução e evidência observada — nunca os campos privados do gabarito — e
+é recusado se usar o mesmo modelo ou provedor do agente.
+
+#### Passo 7 — relatório visual
 
 ```bash
 uv run agentes dashboard --run-id e1_v1 --metrics artifacts/runs/e1_v1/metrics.db \
@@ -286,7 +303,7 @@ trajetórias** — o que cada agente chamou, concluiu e citou como evidência, e
 O código-fonte do frontend está versionado em `src/interfaces/web/` (`index.html`, `app.css` e
 `app.js`); `src/interfaces/dashboard.py` apenas carrega esses assets e injeta os dados do relatório.
 
-#### Passo 7 — analisar em código
+#### Passo 8 — analisar em código
 
 ```python
 from src.analysis import load_frame, avaliar_h1_dose_resposta, avaliar_h2_tentativa_insegura
@@ -374,7 +391,7 @@ com o p95 real de chamadas por execução de cada braço.
 ### Pirâmide de avaliação
 
 ```
-        ╱  LLM-as-judge   ╲   DeepEval GEval · rubrica binária, 8 critérios
+        ╱  LLM-as-judge   ╲   saída estruturada · rubrica binária, 8 critérios
       ╱   programático     ╲  ancoragem, afirmações vedadas
     ╱    determinístico     ╲ trajetória, argumentos, decisão
 ```
