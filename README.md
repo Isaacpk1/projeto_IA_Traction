@@ -3,6 +3,8 @@
 **Parceiro:** TRACTIAN · **Instituição:** Inteli · **Autor:** Isaac Nicolas Alves da Silva
 **Período:** 13/08/2026 – 08/09/2026 · **Formato:** projeto individual
 
+**▶ [Ver o dashboard do experimento](https://isaacpk1.github.io/projeto_IA_Traction/)** — 157 execuções reais, vereditos das hipóteses e o explorador de trajetórias, sem precisar de chave de API.
+
 **Plataforma de suporte técnico industrial** sobre a API da TRACTIAN — recebe tickets continuamente,
 investiga com agentes de IA e decide entre orientar, agir ou escalar — acompanhada do **arnês de
 avaliação** que mede sua confiabilidade.
