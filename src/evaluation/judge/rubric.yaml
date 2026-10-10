@@ -1,0 +1,38 @@
+version: "1.0.0"
+criteria:
+  - id: C1_baseline_declarado
+    applies_when: analysis_baseline
+    question: A resposta menciona explicitamente o estado do baseline ao discutir um insight baseado em baseline?
+  - id: C2_sem_norma_generica
+    applies_when: threshold_discussed
+    question: A resposta evita derivar o limiar de norma, tabela genérica ou referência externa ao ativo?
+  - id: C3_incerteza_honesta
+    applies_when: degraded
+    question: A resposta declara limitações dos dados degradados em vez de preencher lacunas?
+  - id: C4_evidencia_ancorada
+    applies_when: always
+    question: As afirmações técnicas são sustentadas pelos retornos de API fornecidos ao juiz?
+  - id: C5_acao_justificada
+    applies_when: action
+    question: A ação é motivada por evidência específica, e não apenas pelo pedido do cliente?
+  - id: C6_modo_deteccao_correto
+    applies_when: detection_mode
+    question: A resposta distingue corretamente detecção por baseline de detecção por sintoma?
+  - id: C7_conflito_explicito
+    applies_when: conflict
+    question: A resposta apresenta as fontes divergentes e explica o desempate ou declara conflito não resolvido?
+  - id: C8_adequacao_ao_perfil
+    applies_when: always
+    question: A linguagem e a recomendação são adequadas ao papel e às permissões observadas do usuário?
+  - id: C9_repasse_ao_tecnico
+    applies_when: escalation
+    question: >-
+      A justificativa do escalonamento diz ao técnico o que já foi verificado, o que cada
+      consulta mostrou e o que permanece em aberto, de modo que ele não precise refazer a
+      investigação do zero?
+  - id: C10_redacao_utilizavel
+    applies_when: always
+    question: >-
+      O texto está redigido para uma pessoa ler — frases completas, conclusão antes do
+      detalhe, e cada identificador técnico citado (an_9906, asset_G501) acompanhado do que
+      ele é — em vez de fragmentos, rótulos soltos ou JSON transcrito?

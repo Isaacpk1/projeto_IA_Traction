@@ -66,7 +66,7 @@ class Judgment(BaseModel):
     rubric_version: str
     judge_model: str
     verdict: Verdict
-    justification: str
+    justification: str = Field(min_length=20)
     tokens: int = 0
     judged_at: float = 0.0
 

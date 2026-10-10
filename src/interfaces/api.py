@@ -39,7 +39,15 @@ E1_SEEDS_ANALISE = ("complete", "s10", "x1", "s13")
 #: Rodadas de calibração e pilotos ficam fora da plataforma. Elas existem no disco
 #: para auditoria, mas oferecê-las no seletor convida a ler resultado de configuração
 #: que já foi descartada.
-RODADAS_VISIVEIS = ("console4", "console3", "console2", "console", "e1_v1", "e2_v1")
+RODADAS_VISIVEIS = (
+    "final02",
+    "console4",
+    "console3",
+    "console2",
+    "console",
+    "e1_v1",
+    "e2_v1",
+)
 
 
 class TicketNovo(BaseModel):
@@ -77,7 +85,7 @@ def criar_app() -> FastAPI:
     from src.analysis.report import montar_relatorio
     from src.analysis.triagem import anotar_triagem
     from src.evaluation.degradation import carregar_intensidade
-    from src.evaluation.golden.loader import load_golden_dataset
+    from src.evaluation.golden.loader import load_expansion_dataset, load_golden_dataset
 
     aplicacao = FastAPI(
         title="Plataforma de agentes industriais",
@@ -95,7 +103,9 @@ def criar_app() -> FastAPI:
     )
 
     dataset = load_golden_dataset()
-    por_id = dataset.by_id()
+    # O catálogo cobre as duas suítes. Sem isso o console não encontra os casos da
+    # expansão e a rodada aparece no seletor com execuções que ele não sabe explicar.
+    por_id = {**dataset.by_id(), **load_expansion_dataset().by_id()}
     intensidade = carregar_intensidade(INTENSIDADE) if INTENSIDADE.exists() else None
     cache: dict[str, Any] = {}
 

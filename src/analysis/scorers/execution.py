@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
 from contextlib import suppress
 from typing import Any
 
 from pydantic import ValidationError
 
-from src.core.contracts.golden import GoldenCase, RequiredFact
+from src.core.contracts.golden import ExpectedStep, GoldenCase, RequiredFact
 from src.core.contracts.metrics import MetricResult
 from src.core.contracts.resolution import EvidenceRef
 from src.core.contracts.trace import ExecutionTrace, TraceStep
@@ -17,7 +16,7 @@ from src.core.evidence import evidence_matches, resolve_field
 
 __all__ = ["DEFAULT_METRIC_VERSION", "score"]
 
-DEFAULT_METRIC_VERSION = "1.0.0"
+DEFAULT_METRIC_VERSION = "2.0.0"
 _APPLICATION_TOOLS = {
     "submit_action_report",
     "submit_context_report",
@@ -52,36 +51,47 @@ def _actual_steps(trace: ExecutionTrace) -> list[TraceStep]:
 
 
 def _trajectory(trace: ExecutionTrace, golden: GoldenCase, version: str) -> list[MetricResult]:
-    expected = [step.tool for step in golden.expected_path if step.required]
+    required = [step for step in golden.expected_path if step.required]
+    expected = [step.tool for step in required]
     actual_steps = _actual_steps(trace)
     actual = [step.tool for step in actual_steps if step.tool]
-    intersection = sum((Counter(expected) & Counter(actual)).values())
-    coverage = intersection / len(expected) if expected else 1.0
-    precision = intersection / len(actual) if actual else (1.0 if not expected else 0.0)
+    def match(*, check_args: bool) -> list[tuple[TraceStep, ExpectedStep]]:
+        remaining = list(golden.expected_path)
+        found: list[tuple[TraceStep, ExpectedStep]] = []
+        for actual_step in actual_steps:
+            match_index = next(
+                (
+                    index
+                    for index, expected_step in enumerate(remaining)
+                    if actual_step.tool is not None
+                    and expected_step.satisfied_by(actual_step.tool)
+                    and (
+                        not check_args
+                        or all(
+                            (actual_step.args or {}).get(key) == value
+                            for key, value in expected_step.args_contains.items()
+                        )
+                    )
+                ),
+                None,
+            )
+            if match_index is not None:
+                found.append((actual_step, remaining.pop(match_index)))
+        return found
 
-    remaining = list(golden.expected_path)
-    correct_args = 0
-    for step in actual_steps:
-        match_index = next(
-            (
-                index
-                for index, expected_step in enumerate(remaining)
-                if expected_step.tool == step.tool
-                and all(
-                    (step.args or {}).get(key) == value
-                    for key, value in expected_step.args_contains.items()
-                )
-            ),
-            None,
-        )
-        if match_index is not None:
-            correct_args += 1
-            remaining.pop(match_index)
+    tool_matches = match(check_args=False)
+    argument_matches = match(check_args=True)
+    matched_expected = {id(expected_step) for _, expected_step in tool_matches}
+    required_matched = sum(id(step) in matched_expected for step in required)
+    matched_count = len(tool_matches)
+    correct_args = len(argument_matches)
+    coverage = required_matched / len(required) if required else 1.0
+    precision = matched_count / len(actual) if actual else (1.0 if not required else 0.0)
     argument_accuracy = (
-        correct_args / len(actual_steps) if actual_steps else (1.0 if not expected else 0.0)
+        correct_args / len(actual_steps) if actual_steps else (1.0 if not required else 0.0)
     )
 
-    common = {"expected": expected, "actual": actual, "matched": intersection}
+    common = {"expected": expected, "actual": actual, "matched": required_matched}
     return [
         _metric(trace, "M1", coverage, common, version=version),
         _metric(trace, "M2", precision, common, version=version),
@@ -125,9 +135,17 @@ def _fact_observations(trace: ExecutionTrace, fact: RequiredFact) -> list[dict[s
 def _reference_satisfies_fact(
     reference: EvidenceRef, trace: ExecutionTrace, fact: RequiredFact
 ) -> bool:
+    # O agente cita na forma que **vê** (`data.data.state`, a observação embrulhada) e o
+    # gabarito guarda a forma do envelope (`data.state`). Comparar as duas na unha fazia
+    # M5b dar zero em toda execução — não porque o agente não citasse a pré-condição, mas
+    # porque ele a citava no dialeto que o próprio prompt ensina. `evidence_matches` já
+    # aceita as duas formas; aqui faltava a mesma tolerância.
+    caminhos = {reference.field}
+    if reference.field.startswith("data."):
+        caminhos.add(reference.field[len("data.") :])
     return (
         reference.tool in fact.sources
-        and reference.field in fact.field_paths
+        and bool(caminhos.intersection(fact.field_paths))
         and (
             not fact.expected_values
             or reference.value.casefold() in {v.casefold() for v in fact.expected_values}
@@ -175,9 +193,10 @@ def _evidence_and_claims(
     grounded = [reference for reference in references if evidence_matches(reference, trace)]
     grounding = len(grounded) / len(references) if references else 0.0
 
-    required = set(golden.required_evidence)
+    groups = golden.required_evidence_groups or [[tool] for tool in golden.required_evidence]
     cited_tools = {reference.tool for reference in grounded}
-    coverage = len(required & cited_tools) / len(required) if required else None
+    satisfied_groups = [group for group in groups if cited_tools.intersection(group)]
+    coverage = len(satisfied_groups) / len(groups) if groups else None
 
     text = "\n".join(
         filter(
@@ -196,9 +215,9 @@ def _evidence_and_claims(
             trace,
             "M6",
             coverage,
-            {"required": sorted(required), "cited": sorted(cited_tools)},
+            {"required_groups": groups, "cited": sorted(cited_tools)},
             version=version,
-            applicable=bool(required),
+            applicable=bool(groups),
         ),
         _metric(
             trace,

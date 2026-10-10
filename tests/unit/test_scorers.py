@@ -75,6 +75,27 @@ def test_m1_m2_m3_ignoram_ferramentas_internas_de_handoff():
     assert metrics["M3"].value == 1.0
 
 
+def test_m1_m2_m3_aceitam_tool_alternativa_sem_afrouxar_argumentos():
+    golden = _golden(
+        expected_path=[
+            ExpectedStep(
+                tool="getBaseline",
+                alternatives=["getRmsSeries"],
+                args_contains={"assetId": "asset"},
+            )
+        ]
+    )
+    trace = make_trace(
+        [step("getRmsSeries", {"baseline_state": "established"}, args={"assetId": "asset"})]
+    )
+
+    metrics = _by_id(trace, golden, "M1", "M2", "M3")
+
+    assert metrics["M1"].value == 1.0
+    assert metrics["M2"].value == 1.0
+    assert metrics["M3"].value == 1.0
+
+
 def test_m4_le_resolucao_crua_e_nao_decisao_do_guardrail():
     trace = make_trace(decision="agir")
     trace.delivered = Delivered(decision="escalar", guardrail_verdict="blocked")
@@ -141,6 +162,23 @@ def test_m6_m7_m8_m9_medem_evidencia_claim_lacuna_e_grounding():
     assert metrics["M7"].value == 1.0
     assert metrics["M8"].value == 0.5
     assert metrics["M9"].value == 1.0
+
+
+def test_m6_aceita_fontes_equivalentes_dentro_de_grupo():
+    ref = evidence("getRmsSeries", "data.baseline_state", "established", 0)
+    trace = make_trace(
+        [step("getRmsSeries", {"baseline_state": "established"}, n=0)],
+        resolution=Resolution(
+            decision="orientar",
+            justification="baseline estabelecido",
+            evidence_cited=[ref],
+        ),
+    )
+    golden = _golden(
+        required_evidence_groups=[["getBaseline", "getRmsSeries"], ["getModel"]]
+    )
+
+    assert _by_id(trace, golden, "M6")["M6"].value == 0.5
 
 
 def test_m10_m11_usam_tentativa_antes_do_gateway():

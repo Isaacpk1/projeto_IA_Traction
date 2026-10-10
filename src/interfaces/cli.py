@@ -23,13 +23,15 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 
 from src.agents.architectures import MonoArchitecture, MultiArchitecture
+from src.agents.evidence_gate import EvidenceGate, Variante
 from src.analysis import MetricSQLiteRepository
 from src.core.contracts.golden import CaseInput, GoldenCase
+from src.core.contracts.resolution import ConfirmationPolicy
 from src.core.contracts.task import Task
 from src.core.contracts.trace import ExecutionTrace
 from src.core.errors import ContractError
@@ -40,8 +42,19 @@ from src.evaluation.degradation import (
     intensidade,
     salvar_intensidade,
 )
-from src.evaluation.golden.loader import GoldenDataset, load_golden_dataset
-from src.evaluation.matrix import E1_SEEDS, E2_POLICIES, plan_core, plan_e1, plan_e2
+from src.evaluation.golden.loader import (
+    GoldenDataset,
+    load_expansion_dataset,
+    load_golden_dataset,
+)
+from src.evaluation.matrix import (
+    E1_SEEDS,
+    E2_POLICIES,
+    plan_core,
+    plan_e1,
+    plan_e2,
+    plan_expansion,
+)
 from src.evaluation.runner.queue_sqlite import SQLiteWorkQueue
 from src.evaluation.runner.rate_limiter import LocalRateLimiter
 from src.evaluation.runner.worker import Worker
@@ -68,6 +81,7 @@ DEFAULT_TRACES = RAIZ / "artifacts" / "traces"
 DEFAULT_QUOTA = RAIZ / "artifacts" / "quota.db"
 DEFAULT_INTENSITY = RAIZ / "src" / "evaluation" / "golden" / "degradation_intensity.json"
 DEFAULT_DASHBOARD = RAIZ / "artifacts" / "dashboard.html"
+DEFAULT_JUDGMENTS = RAIZ / "artifacts" / "judgments.db"
 
 #: Único modelo de diagnóstico da API; não há endpoint que os liste.
 MODELO_DE_VIBRACAO = "mdl_vib_v3"
@@ -139,6 +153,14 @@ def build_architecture(
             sink,
             enforce_pre_action_guard=False,
         )
+    if task.arm in {"portao_global", "portao_por_ativo"}:
+        variante = "global" if task.arm == "portao_global" else "por_ativo"
+        return MonoArchitecture(
+            llm,
+            provider,
+            sink,
+            evidence_gate=EvidenceGate(variante=cast(Variante, variante)),
+        )
     if task.architecture == "multi":
         return MultiArchitecture({papel: llm for papel in MULTI_ROLES}, provider, sink)
     return MonoArchitecture(llm, provider, sink)
@@ -151,14 +173,40 @@ def build_architecture(
 def plan(
     run_id: Annotated[str, typer.Option(help="Identificador da rodada.")],
     experiment: Annotated[
-        str, typer.Option(help="core (E1+E2), e1 ou e2.")
+        str,
+        typer.Option(
+            help=(
+                "core (E1+E2), e1, e2, "
+                "expansao[:controle|portao_global|portao_por_ativo]."
+            )
+        ),
     ] = "core",
     db: Annotated[Path, typer.Option(help="Fila SQLite.")] = DEFAULT_QUEUE,
+    only: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Restringe a casos específicos (ids separados por vírgula). "
+                "Serve para estratificar: um braço que só pode mudar decisões de um tipo "
+                "não ganha poder rodando casos onde ele nem é consultado."
+            )
+        ),
+    ] = None,
 ) -> None:
     """Materializa a matriz declarada em doc 07 na fila."""
     dataset = _dataset()
     escolha = experiment.lower()
-    if escolha == "core":
+    if escolha.startswith("expansao"):
+        braco = escolha.removeprefix("expansao").lstrip(":") or "controle"
+        casos = load_expansion_dataset().cases
+        if only:
+            pedidos = {item.strip() for item in only.split(",") if item.strip()}
+            casos = tuple(caso for caso in casos if caso.case_id in pedidos)
+            faltando = pedidos - {caso.case_id for caso in casos}
+            if faltando:
+                raise typer.BadParameter(f"casos inexistentes: {sorted(faltando)}")
+        tasks = plan_expansion(casos, run_id=run_id, arm=braco)
+    elif escolha == "core":
         tasks = plan_core(dataset.base_cases(), dataset.adversarial_cases(), run_id=run_id)
     elif escolha == "e1":
         tasks = plan_e1(dataset.base_cases(), run_id=run_id)
@@ -328,6 +376,87 @@ def rescore(
 
 
 # ---------------------------------------------------------------------------
+# judge
+# ---------------------------------------------------------------------------
+@app.command("judge")
+def judge_run(
+    run_id: Annotated[str, typer.Option(help="Rodada cujos traces serão julgados.")],
+    judgments: Annotated[Path, typer.Option(help="SQLite de julgamentos.")] = DEFAULT_JUDGMENTS,
+    traces: Annotated[Path, typer.Option(help="Raiz dos traces.")] = DEFAULT_TRACES,
+    model: Annotated[str, typer.Option(help="Modelo do juiz.")] = "llama-3.3-70b-versatile",
+    base_url: Annotated[
+        str, typer.Option(help="Endpoint OpenAI-compatible do provedor do juiz.")
+    ] = "https://api.groq.com/openai/v1",
+    provider: Annotated[str, typer.Option(help="Nome auditável do provedor.")] = "groq",
+    max_executions: Annotated[
+        int | None, typer.Option(help="Limite para piloto; omita para processar a rodada.")
+    ] = None,
+) -> None:
+    """Aplica a rubrica LLM pós-execução, com cache e sem bloquear entregas."""
+    from src.evaluation.judge import JudgmentSQLiteRepository, judge_trace, load_rubric
+    from src.llm.openai_compat import OpenAICompatibleClient
+
+    env_file = RAIZ / ".env"
+    if env_file.exists():
+        from dotenv import load_dotenv
+
+        load_dotenv(env_file)
+    api_key = os.environ.get("JUDGE_API_KEY") or os.environ.get("GROQ_API_KEY") or ""
+    if not api_key or api_key == _PLACEHOLDER:
+        raise typer.BadParameter("defina JUDGE_API_KEY ou GROQ_API_KEY para executar o juiz")
+
+    raiz = Path(traces) / run_id
+    if not raiz.exists():
+        raise typer.BadParameter(f"sem traces em {raiz}")
+    rubric = load_rubric()
+    cases = _dataset().by_id()
+
+    async def process() -> tuple[int, int]:
+        client = OpenAICompatibleClient(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            provider=provider,
+        )
+        judged = cached = 0
+        try:
+            with JudgmentSQLiteRepository(judgments) as repository:
+                for arquivo in sorted(raiz.glob("*.jsonl")):
+                    final = None
+                    for linha in arquivo.read_text(encoding="utf-8").splitlines():
+                        if linha.strip():
+                            registro = json.loads(linha)
+                            if registro.get("type") == "execution_finished":
+                                final = registro.get("trace")
+                    if final is None or final.get("case_id") not in cases:
+                        continue
+                    trace = ExecutionTrace.model_validate(final)
+                    if trace.resolution is None:
+                        continue
+                    if repository.has_execution(
+                        trace.execution_id,
+                        rubric.version,
+                        model,
+                        expected_count=len(rubric.criteria),
+                    ):
+                        cached += 1
+                        continue
+                    case = cases[trace.case_id].to_input()
+                    repository.save(await judge_trace(case, trace, rubric, client))
+                    judged += 1
+                    if max_executions is not None and judged >= max_executions:
+                        break
+        finally:
+            await client.aclose()
+        return judged, cached
+
+    judged, cached = asyncio.run(process())
+    typer.echo(
+        f"{judged} execuções julgadas · {cached} em cache · rubrica {rubric.version}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # dashboard
 # ---------------------------------------------------------------------------
 @app.command()
@@ -427,6 +556,16 @@ def run(
     quota: Annotated[
         Path, typer.Option(help="Estado durável da cota diária.")
     ] = DEFAULT_QUOTA,
+    confirmation_policy: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "auto_refuse (padrão, seguro) | auto_confirm | explicit. "
+                "Uma suíte de capacidade precisa de auto_confirm: com auto_refuse toda "
+                "tool `requires_confirmation` é bloqueada e nenhum caso `agir` é alcançável."
+            )
+        ),
+    ] = "auto_refuse",
 ) -> None:
     """Drena a fila contra Gemini e a API industrial, gravando trace e métricas.
 
@@ -450,6 +589,7 @@ def run(
             max_tasks=max_tasks,
             worker_id=worker_id,
             quota=quota,
+            confirmation_policy=confirmation_policy,
         )
     )
     typer.echo(f"processadas {processadas} tarefas")
@@ -468,9 +608,13 @@ async def _drain(
     max_tasks: int | None,
     worker_id: str,
     quota: Path,
+    confirmation_policy: str = "auto_refuse",
 ) -> int:
     dataset = _dataset()
-    por_id = dataset.by_id()
+    expansao = load_expansion_dataset()
+    # A busca por id cobre as duas suítes: o plano já decidiu o que roda, e um worker
+    # que não encontra o caso falharia a tarefa por um detalhe de carregamento.
+    por_id = {**dataset.by_id(), **expansao.by_id()}
     commit = _code_commit()
     traces.mkdir(parents=True, exist_ok=True)
     metrics.parent.mkdir(parents=True, exist_ok=True)
@@ -506,11 +650,25 @@ async def _drain(
             provider.default_seed = task.seed
             return build_architecture(task, llm=llm, provider=provider, sink=sink)
 
+        # Cada caso reporta a versão da suíte de onde veio. Marcar tudo com a versão
+        # do dataset base tornava impossível saber, olhando o trace, se a execução era
+        # de um caso da TRACTIAN ou da expansão — e as duas não entram na mesma análise.
+        versao_por_caso = {
+            **{case_id: dataset.version for case_id in dataset.by_id()},
+            **{case_id: expansao.version for case_id in expansao.by_id()},
+        }
+
         def metadata_for(task: Task) -> dict:
             return {
-                "dataset_version": dataset.version,
+                "dataset_version": versao_por_caso.get(task.case_id, dataset.version),
                 "code_commit": commit,
-                "experiment_id": "E2" if task.arm in E2_POLICIES else "E1",
+                "experiment_id": (
+                    "E2"
+                    if task.arm in E2_POLICIES
+                    else "EXPANSAO"
+                    if task.case_id in expansao.by_id()
+                    else "E1"
+                ),
             }
 
         with MetricSQLiteRepository(metrics) as repository:
@@ -520,6 +678,7 @@ async def _drain(
                 architecture_for,
                 metadata_for=metadata_for,
                 dry_run_for=lambda task: task.arm == "prompt_only",
+                confirmation_policy=cast(ConfirmationPolicy, confirmation_policy),
                 on_completed=ScoreCompletedExecution(golden_for, repository),
             )
             try:
