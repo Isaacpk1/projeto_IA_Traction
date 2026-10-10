@@ -265,3 +265,100 @@ def test_permissao_e_lida_da_raiz_do_getCurrentUser():
     assert com({"permissions": ["read", "action_low"]}) == {"read", "action_low"}
     assert com({"data": {"permissions": ["read"]}}) == {"read"}
     assert com({"role": "tech"}) == set()
+
+
+async def test_valor_estruturado_nao_precisa_aparecer_literal_na_justificativa():
+    """Citar `permissions` não pode ser reprovação automática.
+
+    Uma lista serializada nunca aparece verbatim numa justificativa escrita para pessoa,
+    e o prompt manda traduzir o campo em consequência. Exigir o literal transformava a
+    citação mais importante de uma ação — a permissão do solicitante — em bloqueio certo.
+    """
+    trace = _trace()  # o passo 0 já é um getCurrentUser com permissions=["action_high"]
+    inner = FakeToolProvider(
+        defs=[
+            tool_def(
+                "updateAssetConfig",
+                tier="impact",
+                required_permission="action_high",
+                requires_confirmation=True,
+            )
+        ]
+    )
+    guard = PreActionGuardProvider(inner, trace, confirmation_policy="auto_confirm")
+
+    result = await guard.call(
+        "updateAssetConfig",
+        {
+            "justification": "O solicitante tem permissão de alteração de alto impacto.",
+            "evidence_cited": [
+                {
+                    "tool": "getCurrentUser",
+                    "field": "data.permissions",
+                    "value": '["action_high"]',
+                    "step": 0,
+                }
+            ],
+        },
+        call_id="c1",
+    )
+
+    assert result.ok
+    assert "evidence" not in trace.action_attempts[-1].failed_preconditions
+
+
+async def test_guarda_verifica_a_permissao_na_fonte_quando_o_agente_nao_consultou():
+    """Autorização não pode depender de o agente ter resolvido olhar.
+
+    Antes, quem não chamava `getCurrentUser` era bloqueado como se não tivesse permissão
+    — e repassava ao cliente a frase "você não tem permissão", falsa sobre um usuário que
+    tinha. A guarda agora confere na fonte; o trace do agente é atalho, não a verdade.
+    """
+    trace = ExecutionTrace(
+        task_id="task",
+        execution_id="exec",
+        case_id="case",
+        architecture="mono",
+        arm="A",
+        steps=[
+            TraceStep(
+                step=0,
+                agent="agent",
+                tool="getAsset",
+                result=envelope({"sensor_status": "offline"}),
+            )
+        ],
+    )
+    inner = FakeToolProvider(
+        {"getCurrentUser": {"permissions": ["escalate"]}},
+        defs=[
+            tool_def(
+                "escalateCase",
+                tier="impact",
+                required_permission="escalate",
+                requires_confirmation=False,
+            )
+        ],
+    )
+    guard = PreActionGuardProvider(inner, trace, confirmation_policy="auto_confirm")
+
+    result = await guard.call(
+        "escalateCase",
+        {
+            "caseId": "case",
+            "justification": "O sensor está offline, então a inspeção precisa ser em campo.",
+            "evidence_cited": [
+                {
+                    "tool": "getAsset",
+                    "field": "data.sensor_status",
+                    "value": "offline",
+                    "step": 0,
+                }
+            ],
+        },
+        call_id="c1",
+        user_id="usr_pedro",
+    )
+
+    assert "permission" not in trace.action_attempts[-1].failed_preconditions
+    assert result.ok

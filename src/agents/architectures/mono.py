@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib.resources import files
 from typing import cast
 
+from src.agents.evidence_gate import EvidenceGate
 from src.agents.pre_action_guard import PreActionGuardProvider
 from src.agents.pre_delivery_guard import PreDeliveryGuard
 from src.agents.react import react_loop
@@ -23,7 +24,7 @@ from src.core.ports.trace_sink import TraceSink
 
 __all__ = ["MonoArchitecture", "PROMPT_VERSION"]
 
-PROMPT_VERSION = "1.4.0"
+PROMPT_VERSION = "1.5.0"
 
 
 def _base_prompt() -> str:
@@ -41,12 +42,16 @@ class MonoArchitecture:
         *,
         enforce_pre_action_guard: bool = True,
         delivery_guard: PreDeliveryGuard | None = None,
+        evidence_gate: EvidenceGate | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.sink = sink
         self.enforce_pre_action_guard = enforce_pre_action_guard
         self.delivery_guard = delivery_guard or PreDeliveryGuard()
+        #: `None` desliga o portão. O braço de controle precisa rodar sem ele, senão a
+        #: comparação mede duas mudanças de uma vez.
+        self.evidence_gate = evidence_gate
 
     async def run(self, case: CaseInput, ctx: RunContext) -> ExecutionTrace:
         metadata = ctx.metadata
@@ -104,6 +109,7 @@ class MonoArchitecture:
                 application_tools=[SUBMIT_RESOLUTION_TOOL],
                 tracer=tracer,
                 max_steps=ctx.max_steps,
+                evidence_gate=self.evidence_gate,
                 temperature=trace.temperature,
                 seed=ctx.seed,
             )

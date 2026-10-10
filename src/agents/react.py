@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from src.agents.evidence_gate import EvidenceGate
 from src.agents.roles import SUBMIT_RESOLUTION, RoleSpec
 from src.agents.submit_resolution import parse_resolution
 from src.agents.tracer import TraceRecorder
@@ -65,6 +66,7 @@ async def react_loop(
     temperature: float = 0.0,
     seed: str | None = None,
     context: dict | None = None,
+    evidence_gate: EvidenceGate | None = None,
 ) -> ReactOutcome:
     """Executa turnos LLM até `submit_resolution` ou até o orçamento terminar."""
     user_payload: dict = case.model_dump()
@@ -124,15 +126,38 @@ async def react_loop(
         for call in calls:
             if call.name == SUBMIT_RESOLUTION:
                 try:
-                    resolution = parse_resolution(call.arguments)
-                    result = ToolResult(
-                        call_id=call.call_id,
-                        name=call.name,
-                        data={"accepted": True, "resolution": resolution.model_dump(mode="json")},
-                    )
+                    parsed = parse_resolution(call.arguments)
                 except ValidationError as exc:
                     result = _contract_error(call, f"resolução inválida: {exc}")
                     resolution = None
+                else:
+                    # O portão decide **antes** do registro: gravar `accepted: True` e só
+                    # depois recusar deixaria no trace um aceite que não houve.
+                    recusa = (
+                        evidence_gate.recusa(parsed, tracer.trace, asset_id=case.asset_id)
+                        if evidence_gate is not None
+                        else None
+                    )
+                    if recusa is None:
+                        resolution = parsed
+                        result = ToolResult(
+                            call_id=call.call_id,
+                            name=call.name,
+                            data={
+                                "accepted": True,
+                                "resolution": parsed.model_dump(mode="json"),
+                            },
+                        )
+                    else:
+                        # `behavior`, não `contract`: o esquema estava certo; o que falta é
+                        # investigação. O turno volta para o agente com o que consultar.
+                        result = ToolResult(
+                            call_id=call.call_id,
+                            name=call.name,
+                            error=recusa,
+                            error_class="behavior",
+                        )
+                        resolution = None
 
                 tracer.record_tool(
                     agent=role.name,

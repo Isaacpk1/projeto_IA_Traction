@@ -33,9 +33,14 @@ def report_tool(name: str, model: type[BaseModel], description: str) -> ToolDef:
     return ToolDef(name=name, description=description, parameters=model.model_json_schema())
 
 
-def _observation(result: ToolResult) -> str:
+def _observation(result: ToolResult, step: int) -> str:
     return json.dumps(
-        {"data": result.data, "error": result.error, "error_class": result.error_class},
+        {
+            "step": step,
+            "data": result.data,
+            "error": result.error,
+            "error_class": result.error_class,
+        },
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -104,7 +109,7 @@ async def run_report_loop(
                         role="tool",
                         name=call.name,
                         tool_call_id=call.call_id,
-                        content=_observation(result),
+                        content=_observation(result, tracer.trace.steps[-1].step),
                     )
                 )
             continue
@@ -141,7 +146,7 @@ async def run_report_loop(
                     role="tool",
                     name=call.name,
                     tool_call_id=call.call_id,
-                    content=_observation(result),
+                    content=_observation(result, tracer.trace.steps[-1].step),
                 )
             )
             if report is not None:

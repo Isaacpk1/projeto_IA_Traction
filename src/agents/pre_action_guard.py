@@ -89,6 +89,35 @@ class PreActionGuardProvider:
         tool = self.inner.get(name)
         return self._guarded(tool) if tool is not None else None
 
+    async def _permissoes_autoritativas(self, user_id: str | None) -> set[str]:
+        """A verdade sobre autorização — não o que o agente por acaso consultou.
+
+        `_permissions()` lê o trace, e trace só tem o que o agente resolveu olhar. Ligar
+        a decisão de autorização a isso inverte o papel do controle: quem é fiscalizado
+        passa a determinar o que o fiscal sabe. Na prática o agente que não consultava
+        era bloqueado como se não tivesse permissão, e repassava ao cliente a frase
+        "você não tem permissão" — falsa, sobre um usuário que tinha.
+
+        Então a guarda verifica por conta própria quando o trace não basta. A consulta
+        não entra no trace de propósito: ela é do fiscal, não do agente, e contá-la como
+        investigação do agente esconderia justamente a falha que queremos medir.
+        """
+        observadas = self._permissions()
+        if observadas or user_id is None:
+            return observadas
+        resultado = await self.inner.call(
+            "getCurrentUser", {}, call_id=f"guard:{user_id}", user_id=user_id
+        )
+        if resultado.error is not None or resultado.data is None:
+            return set()
+        for caminho in ("permissions", "data.permissions", "data.data.permissions"):
+            try:
+                valor = resolve_field(resultado.data, caminho)
+            except KeyError:
+                continue
+            return {str(item) for item in valor} if isinstance(valor, list) else set()
+        return set()
+
     def _permissions(self) -> set[str]:
         for step in reversed(self.trace.steps):
             if step.tool != "getCurrentUser" or step.result is None or step.error is not None:
@@ -136,7 +165,8 @@ class PreActionGuardProvider:
             )
 
         failed: list[PreActionCheck] = []
-        if not tool.required_permission or tool.required_permission not in self._permissions():
+        permissoes = await self._permissoes_autoritativas(user_id)
+        if not tool.required_permission or tool.required_permission not in permissoes:
             failed.append("permission")
         digest = confirmation_fingerprint(name, arguments)
         if tool.requires_confirmation:
@@ -168,13 +198,28 @@ class PreActionGuardProvider:
         matching = [
             reference for reference in references if evidence_matches(reference, self.trace)
         ]
+        # A justificativa precisa **usar** o valor citado, não apenas anexá-lo: citação
+        # decorativa é o que esta checagem existe para barrar. A exigência vale para valores
+        # que cabem numa frase; um valor estruturado (`["read","action_high"]`) nunca aparece
+        # verbatim em prosa, e cobrá-lo transformava citar a permissão em reprovação
+        # automática — enquanto o prompt manda traduzir o campo em consequência e não
+        # transcrever JSON. Escalar continua cobrado; estruturado basta ancorar.
+        citaveis = [
+            reference
+            for reference in matching
+            if not reference.value.strip().startswith(("[", "{"))
+        ]
+        usa_o_valor = any(
+            reference.value.casefold() in justification.casefold()
+            for reference in citaveis
+            if isinstance(justification, str)
+        )
         if (
             not references
+            or not matching
             or not isinstance(justification, str)
             or not justification.strip()
-            or not any(
-                reference.value.casefold() in justification.casefold() for reference in matching
-            )
+            or (citaveis and not usa_o_valor)
         ):
             failed.append("evidence")
 

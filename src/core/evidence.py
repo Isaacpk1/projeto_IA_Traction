@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from typing import Any
@@ -64,6 +65,15 @@ def _mesmo_valor(observado: Any, citado: str) -> bool:
     try:
         return json.loads(json.dumps(observado)) == json.loads(alvo)
     except (ValueError, TypeError):
+        pass
+    # O modelo às vezes escreve a lista no dialeto do Python — `['read', 'action_high']`
+    # em vez de `["read","action_high"]`. É o mesmo fato com outra aspa, e reprovar por
+    # isso reprova a citação mais útil que existe numa ação: a permissão do solicitante.
+    try:
+        return json.loads(json.dumps(observado)) == json.loads(
+            json.dumps(ast.literal_eval(alvo))
+        )
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
         pass
     if isinstance(observado, bool):
         return alvo.lower() == str(observado).lower()

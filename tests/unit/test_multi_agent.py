@@ -1,5 +1,7 @@
 """Fase 5 — grafo multiagente, handoffs tipados e isolamento de capacidades."""
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -182,6 +184,9 @@ async def test_braco_b_roteia_quatro_papeis_e_persiste_handoffs_tipados():
         assert "submit_resolution" not in specialist.calls[0][0][0].content
     assert "submit_resolution" not in orchestrator.calls[0][0][0].content
     assert "submit_resolution" in orchestrator.calls[1][0][0].content
+    assert json.loads(contextualizer.calls[1][0][-1].content)["step"] == 1
+    assert json.loads(investigator.calls[1][0][-1].content)["step"] == 3
+    assert json.loads(executor.calls[1][0][-1].content)["step"] == 5
 
 
 async def test_rota_investigativa_pula_contextualizador_e_executor():
