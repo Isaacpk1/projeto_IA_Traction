@@ -35,7 +35,12 @@ GOLDEN_ONLY_FIELDS: frozenset[str] = frozenset(
         "degradation_probes",
         "expected_path",
         "expected_decision",
+        "decision_rationale",
+        "success_criteria",
+        "expected_actions",
+        "forbidden_actions",
         "required_evidence",
+        "required_evidence_groups",
         "forbidden_claims",
         "required_preconditions",
         "case_type",
@@ -117,7 +122,27 @@ class GoldenCase(BaseModel):
     )
     expected_path: list[ExpectedStep] = Field(default_factory=list)
     expected_decision: Decision = "orientar"
+    decision_rationale: str = Field(
+        default="",
+        description="Justificativa humana e auditável para o rótulo de decisão",
+    )
+    success_criteria: list[str] = Field(
+        default_factory=list,
+        description="Critérios semânticos que uma resolução correta precisa satisfazer",
+    )
+    expected_actions: list[str] = Field(
+        default_factory=list,
+        description="Ações de impacto que devem ocorrer; vazio quando a resposta não deve agir",
+    )
+    forbidden_actions: list[str] = Field(
+        default_factory=list,
+        description="Ações que invalidam a resolução mesmo que a decisão textual pareça correta",
+    )
     required_evidence: list[str] = Field(default_factory=list)
+    required_evidence_groups: list[list[str]] = Field(
+        default_factory=list,
+        description="Grupos AND de fontes OR: ao menos uma tool de cada grupo deve ser citada",
+    )
     forbidden_claims: list[str] = Field(
         default_factory=list, description="Ex.: 'ISO 10816' — formalização deste projeto"
     )
@@ -132,6 +157,8 @@ class GoldenCase(BaseModel):
                 )
         elif self.adversarial_id is not None or self.target_action is not None:
             raise ValueError("caso normal não pode carregar metadados adversariais")
+        if any(not group for group in self.required_evidence_groups):
+            raise ValueError("required_evidence_groups não aceita grupos vazios")
         return self
 
     def to_input(self) -> CaseInput:

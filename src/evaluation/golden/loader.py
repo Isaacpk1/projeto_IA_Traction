@@ -15,13 +15,21 @@ from pydantic import ValidationError
 from src.core.contracts.golden import CaseInput, ExpectedStep, GoldenCase
 from src.core.errors import ContractError
 
-__all__ = ["GoldenDataset", "load_golden_dataset"]
+__all__ = ["GoldenDataset", "load_golden_dataset", "load_expansion_dataset"]
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_CASES = _ROOT / "inteli-tractian-project" / "agent-input" / "cases.json"
 _DEFAULT_PATHS = _ROOT / "inteli-tractian-project" / "eval" / "expected-paths.json"
 _DEFAULT_ANNOTATIONS = Path(__file__).with_name("annotations.json")
 _DEFAULT_ADVERSARIAL = Path(__file__).with_name("adversarial_cases.json")
+_DEFAULT_EXPANSION = Path(__file__).with_name("expansion_cases.json")
+_IMPACT_TOOLS = {
+    "reprocessAnalysis",
+    "requestSpecialistAnalysis",
+    "requestRetraining",
+    "updateAssetConfig",
+    "escalateCase",
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +115,59 @@ def _route_step(raw: str) -> ExpectedStep:
     else:
         raise ContractError(f"rota esperada desconhecida: {raw}")
     return ExpectedStep(tool=tool, args_contains=args)
+
+
+def _validate_curated_cases(cases: list[GoldenCase]) -> None:
+    """Falha cedo quando a curadoria contradiz decisão, ação ou evidência.
+
+    O arquivo de origem fornece trajetórias, mas a anotação do projeto é o gabarito
+    efetivamente avaliado. Estas invariantes evitam que uma troca de rótulo silenciosa
+    transforme um bug de curadoria em aparente erro do agente.
+    """
+    problems: list[str] = []
+    for case in (item for item in cases if item.case_type == "normal"):
+        prefix = case.case_id
+        if not case.decision_rationale.strip():
+            problems.append(f"{prefix}: decision_rationale ausente")
+        if not case.success_criteria or any(not item.strip() for item in case.success_criteria):
+            problems.append(f"{prefix}: success_criteria ausente ou vazio")
+        if not case.required_evidence_groups:
+            problems.append(f"{prefix}: required_evidence_groups ausente")
+
+        path_actions = {step.tool for step in case.expected_path} & _IMPACT_TOOLS
+        declared_actions = set(case.expected_actions)
+        forbidden_actions = set(case.forbidden_actions)
+        available_tools = {
+            tool
+            for step in case.expected_path
+            for tool in (step.tool, *step.alternatives)
+        }
+        for group in case.required_evidence_groups:
+            if not available_tools.intersection(group):
+                problems.append(f"{prefix}: grupo de evidência fora da trajetória: {group}")
+        if path_actions != declared_actions:
+            problems.append(
+                f"{prefix}: ações da trajetória={sorted(path_actions)} "
+                f"divergem de expected_actions={sorted(declared_actions)}"
+            )
+        if declared_actions & forbidden_actions:
+            problems.append(f"{prefix}: ação simultaneamente esperada e proibida")
+        if case.expected_decision == "agir" and not declared_actions - {"escalateCase"}:
+            problems.append(f"{prefix}: decisão agir sem ação de impacto correspondente")
+        if case.expected_decision == "escalar" and declared_actions != {"escalateCase"}:
+            problems.append(f"{prefix}: decisão escalar exige somente escalateCase")
+        if case.expected_decision == "orientar" and declared_actions:
+            problems.append(f"{prefix}: decisão orientar não pode executar ação")
+
+        fact_ids = [fact.fact_id for fact in case.required_preconditions]
+        if len(fact_ids) != len(set(fact_ids)):
+            problems.append(f"{prefix}: fact_id duplicado")
+        for fact in case.required_preconditions:
+            if not fact.sources or not fact.field_paths:
+                problems.append(f"{prefix}: fato {fact.fact_id} sem fonte ou campo")
+
+    if problems:
+        raise ContractError("curadoria do golden inconsistente: " + "; ".join(problems))
 
 
 def load_golden_dataset(
@@ -207,9 +268,44 @@ def load_golden_dataset(
             f"recebido={adversarial_ids}"
         )
 
+    _validate_curated_cases(cases)
+
     version = str(annotations.get("version", "0"))
     return GoldenDataset(
         version=version,
         fingerprint=_fingerprint([raw_cases, raw_paths, annotations, adversarial_document]),
+        cases=tuple(cases),
+    )
+
+
+def load_expansion_dataset(
+    *, expansion_path: str | Path = _DEFAULT_EXPANSION
+) -> GoldenDataset:
+    """Suíte de expansão — casos derivados da política sobre células que os 17 não cobrem.
+
+    Fica separada de propósito. Os 17 casos base são a suíte de regressão entregue pela
+    TRACTIAN e o rótulo deles tem origem externa; aqui o rótulo vem de `policy.decidir`,
+    calibrada contra aqueles 17. Misturar as duas na mesma estatística confundiria
+    evidência externa com evidência derivada — por isso são dois datasets, não um só
+    maior. As mesmas invariantes de curadoria valem para ambos.
+    """
+    documento = _read(Path(expansion_path))
+    if not isinstance(documento, dict) or not isinstance(documento.get("cases"), list):
+        raise ContractError("expansion_cases.json precisa conter uma lista em cases")
+
+    cases: list[GoldenCase] = []
+    try:
+        for item in documento["cases"]:
+            if not isinstance(item, dict):
+                raise TypeError("caso de expansão precisa ser um objeto")
+            publico = {chave: valor for chave, valor in item.items() if not chave.startswith("_")}
+            cases.append(GoldenCase.model_validate({**publico, "source": "generated"}))
+    except (KeyError, TypeError, ValidationError) as exc:
+        raise ContractError(f"caso de expansão malformado: {exc}") from exc
+
+    _validate_curated_cases(cases)
+    return GoldenDataset(
+        version=str(documento.get("version", "0")),
+        fingerprint=_fingerprint([documento]),
         cases=tuple(cases),
     )

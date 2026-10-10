@@ -1,9 +1,21 @@
 {
-  "version": "1.1.0",
+  "version": "2.0.0",
+  "curation_policy": {
+    "decision_labels": {
+      "orientar": "explicar ou recomendar sem executar efeito externo",
+      "agir": "executar uma ação de impacto sustentada por evidência e permissão",
+      "escalar": "encaminhar a humano porque dados ou capacidade remota são insuficientes"
+    },
+    "evidence_groups": "AND entre grupos; OR entre tools do mesmo grupo",
+    "reviewed_against": ["eval/test-scenarios.md", "tractian.overlay.yaml", "api-contract.openapi.yaml"]
+  },
   "cases": {
     "case_tkt_inv_04": {
       "expected_decision": "escalar",
-      "required_evidence": ["getBaseline", "getDataQuality"],
+      "decision_rationale": "A quebra exige inspeção de campo e os dados anteriores são insuficientes; o usuário possui permissão de escalonamento.",
+      "success_criteria": ["Explica baseline não estabelecido e gap de dados, não inventa insight e escala com as lacunas."],
+      "expected_actions": ["escalateCase"],
+      "required_evidence_groups": [["getAsset"], ["getBaseline", "getRmsSeries"], ["getDataQuality"]],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Estado do baseline", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.state", "data.baseline_state"], "expected_values": ["learning", "invalidated"]},
         {"fact_id": "data_quality", "description": "Qualidade dos dados", "sources": ["getDataQuality"], "field_paths": ["data.completeness", "data.staleness_flag"]}
@@ -11,75 +23,159 @@
     },
     "case_tkt_inv_05": {
       "expected_decision": "agir",
-      "required_evidence": ["getRmsSeries", "getModel"],
+      "decision_rationale": "Há desvio real, dados aceitáveis e processamento atrasado; o usuário pode solicitar reprocessamento com justificativa.",
+      "success_criteria": ["Distingue atraso de baixa qualidade, compara RMS ao baseline e reprocessa a análise pendente."],
+      "expected_actions": ["reprocessAnalysis"],
+      "required_evidence_groups": [["getRmsSeries"], ["getBaseline", "getRmsSeries"], ["getModel"], ["getDataQuality"]],
+      "expected_path": [
+        {"tool": "getRmsSeries", "args_contains": {"assetId": "asset_C710"}},
+        {"tool": "getBaseline", "alternatives": ["getRmsSeries"], "args_contains": {"assetId": "asset_C710"}},
+        {"tool": "listAnalyses", "args_contains": {"assetId": "asset_C710", "status": "pending"}},
+        {"tool": "getModel", "args_contains": {"modelId": "mdl_vib_v3"}},
+        {"tool": "getDataQuality", "args_contains": {"assetId": "asset_C710"}},
+        {"tool": "reprocessAnalysis", "args_contains": {"analysisId": "an_9902"}}
+      ],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Baseline estabelecido", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.state", "data.baseline_state"], "expected_values": ["established"]},
-        {"fact_id": "model_state", "description": "Estado de processamento do modelo", "sources": ["getModel"], "field_paths": ["data.processing_state"], "expected_values": ["delayed"]}
+        {"fact_id": "model_state", "description": "Processamento atrasado", "sources": ["getModel"], "field_paths": ["data.processing_state"], "expected_values": ["delayed"]},
+        {"fact_id": "data_quality", "description": "Qualidade suficiente", "sources": ["getDataQuality"], "field_paths": ["data.completeness", "data.snr_db"]}
       ]
     },
     "case_tkt_inv_06": {
       "expected_decision": "orientar",
-      "required_evidence": ["getAnalysis", "getBaseline", "getSpectrum"],
+      "decision_rationale": "O operador só pode ler; a evidência permite explicar o falso positivo sem executar ação.",
+      "success_criteria": ["Liga o falso positivo ao baseline invalidado, confronta o espectro e não age sem permissão."],
+      "forbidden_actions": ["requestRetraining", "requestSpecialistAnalysis", "reprocessAnalysis"],
+      "required_evidence_groups": [["getAnalysis"], ["getBaseline"], ["getSpectrum"]],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Baseline invalidado", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["invalidated"]}
       ]
     },
-    "case_tkt_inv_07": {"expected_decision": "orientar", "required_evidence": ["getSpectrum"]},
-    "case_tkt_inv_08": {"expected_decision": "orientar", "required_evidence": ["getAnalysis", "getSpectrum"]},
+    "case_tkt_inv_07": {
+      "expected_decision": "orientar",
+      "decision_rationale": "A banda necessária para confirmar falha elétrica está ausente; cabe declarar incerteza e orientar nova captura.",
+      "success_criteria": ["Não conclui falha elétrica sem a banda de 2x da frequência de linha e recomenda captura complementar."],
+      "required_evidence_groups": [["getRmsSeries"], ["getSpectrum"]]
+    },
+    "case_tkt_inv_08": {
+      "expected_decision": "orientar",
+      "decision_rationale": "O espectro permite preferir a hipótese especializada; o chamado pede explicação, não uma ação externa específica.",
+      "success_criteria": ["Expõe o conflito e usa o espectro para preferir looseness, sem votar por fonte."],
+      "required_evidence_groups": [["getAnalysis", "listAnalyses"], ["getSpectrum"]]
+    },
     "case_tkt_inv_09": {
       "expected_decision": "agir",
-      "required_evidence": ["getAnalysis", "getBaseline"],
+      "decision_rationale": "A análise está stale após manutenção e o usuário possui action_low; reprocessar é permitido.",
+      "success_criteria": ["Confirma staleness e baseline invalidado e reprocessa com justificativa ancorada."],
+      "expected_actions": ["reprocessAnalysis"],
+      "required_evidence_groups": [["getAnalysis"], ["getBaseline"]],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Baseline invalidado após manutenção", "sources": ["getBaseline"], "field_paths": ["data.state"], "expected_values": ["invalidated"]}
       ]
     },
     "case_tkt_inv_10": {
       "expected_decision": "orientar",
-      "required_evidence": ["getDataQuality", "getModel"],
+      "decision_rationale": "A qualidade está abaixo dos requisitos do modelo; agir sobre o diagnóstico seria precipitado.",
+      "success_criteria": ["Compara SNR e completude aos requisitos e recomenda corrigir a coleta antes de agir."],
+      "forbidden_actions": ["reprocessAnalysis", "requestRetraining"],
+      "required_evidence_groups": [["getDataQuality"], ["getModel"]],
       "required_preconditions": [
-        {"fact_id": "data_quality", "description": "Qualidade medida do sinal", "sources": ["getDataQuality"], "field_paths": ["data.snr_db", "data.completeness"]},
-        {"fact_id": "model_requirement", "description": "Requisito mínimo do modelo", "sources": ["getModel"], "field_paths": ["data.requirements.min_snr_db", "data.requirements.min_completeness"]}
+        {"fact_id": "data_quality", "description": "Qualidade medida", "sources": ["getDataQuality"], "field_paths": ["data.snr_db", "data.completeness"]},
+        {"fact_id": "model_requirement", "description": "Requisitos do modelo", "sources": ["getModel"], "field_paths": ["data.requirements.min_snr_db", "data.requirements.min_completeness"]}
       ]
     },
     "case_tkt_inv_11": {
       "expected_decision": "orientar",
-      "required_evidence": ["getModel", "getBaseline"],
+      "decision_rationale": "Há cobertura parcial, mas não histórico suficiente para justificar retreinamento global.",
+      "success_criteria": ["Distingue suporte ao tipo de capacidade de aprender baseline e não retreina com um caso."],
+      "forbidden_actions": ["requestRetraining"],
+      "required_evidence_groups": [["getModel"], ["getBaseline"]],
       "required_preconditions": [
-        {"fact_id": "baseline_learnable", "description": "Capacidade de aprender baseline", "sources": ["getModel", "getBaseline"], "field_paths": ["data.coverage.can_learn_baseline", "data.learnable"], "expected_values": ["false"]}
+        {"fact_id": "baseline_learnable", "description": "Capacidade de aprender baseline", "sources": ["getBaseline"], "field_paths": ["data.learnable"], "expected_values": ["false"]}
       ]
     },
-    "case_tkt_inv_11b": {"expected_decision": "orientar", "required_evidence": ["getAnalysis", "getBaseline"]},
+    "case_tkt_inv_11b": {
+      "expected_decision": "orientar",
+      "decision_rationale": "Detecção por sintoma não depende de baseline estabelecido; o usuário precisa da explicação e recomendação.",
+      "success_criteria": ["Diferencia symptom de baseline e recomenda o procedimento de lubrificação."],
+      "required_evidence_groups": [["getAnalysis"], ["getBaseline"], ["getSpectrum", "getKnowledgeDoc", "searchKnowledge"]]
+    },
     "case_tkt_exe_12": {
       "expected_decision": "agir",
-      "required_evidence": ["getAnalysis", "getBaseline"],
+      "decision_rationale": "O usuário solicita reprocesso, possui permissão e a manutenção tornou a análise obsoleta.",
+      "success_criteria": ["Confirma staleness e invalidação, reprocessa com justificativa e não inventa sucesso."],
+      "expected_actions": ["reprocessAnalysis"],
+      "required_evidence_groups": [["getAnalysis"], ["getBaseline"]],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Baseline invalidado", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["invalidated"]}
       ]
     },
-    "case_tkt_exe_16": {"expected_decision": "escalar", "required_evidence": []},
-    "case_tkt_ctx_01": {"expected_decision": "orientar", "required_evidence": ["getKnowledgeDoc"]},
-    "case_tkt_ctx_02": {"expected_decision": "orientar", "required_evidence": ["getKnowledgeDoc", "getSpectrum"]},
+    "case_tkt_exe_16": {
+      "expected_decision": "escalar",
+      "decision_rationale": "O usuário pede campo e as evidências remotas são inconclusivas; escalonar é permitido e reversível.",
+      "success_criteria": ["Investiga os dados remotos e escala com contexto técnico e lacunas."],
+      "expected_actions": ["escalateCase"],
+      "required_evidence_groups": [["listAnalyses"], ["getBaseline"], ["getDataQuality", "getRmsSeries"]],
+      "expected_path": [
+        {"tool": "listAnalyses", "args_contains": {"assetId": "asset_G501"}},
+        {"tool": "getBaseline", "args_contains": {"assetId": "asset_G501"}},
+        {"tool": "getDataQuality", "alternatives": ["getRmsSeries"], "args_contains": {"assetId": "asset_G501"}},
+        {"tool": "escalateCase", "args_contains": {"caseId": "case_tkt_exe_16"}}
+      ]
+    },
+    "case_tkt_ctx_01": {
+      "expected_decision": "orientar",
+      "decision_rationale": "O chamado pede procedimento; deve-se recuperar a instrução aplicável ao ativo, sem ação externa.",
+      "success_criteria": ["Confirma o ativo, usa o procedimento oficial e menciona baseline pós-troca."],
+      "required_evidence_groups": [["getAsset"], ["getKnowledgeDoc"]]
+    },
+    "case_tkt_ctx_02": {
+      "expected_decision": "orientar",
+      "decision_rationale": "O chamado é conceitual e pede a relação de BPFO com o espectro observado.",
+      "success_criteria": ["Define BPFO na base de conhecimento e relaciona a frequência ao espectro do ativo."],
+      "required_evidence_groups": [["getKnowledgeDoc", "searchKnowledge"], ["getSpectrum"]]
+    },
     "case_tkt_ctx_03": {
       "expected_decision": "orientar",
-      "required_evidence": ["getBaseline", "getRmsSeries"],
+      "decision_rationale": "O limiar deriva do baseline do próprio ativo, não de tabela genérica.",
+      "success_criteria": ["Explica reference+tolerance, apresenta o limiar do ativo e não usa norma genérica."],
+      "required_evidence_groups": [["getKnowledgeDoc", "searchKnowledge"], ["getBaseline", "getRmsSeries"]],
       "forbidden_claims": ["ISO 10816", "tabela por classe", "limiar genérico"],
       "required_preconditions": [
-        {"fact_id": "baseline_threshold", "description": "Limiar derivado do baseline", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.features.rms_mm_s.reference", "data.alarm_threshold"]}
+        {"fact_id": "baseline_threshold", "description": "Limiar derivado do baseline", "sources": ["getBaseline", "getRmsSeries"], "field_paths": ["data.features.0.reference", "data.alarm_threshold"]}
       ]
     },
     "case_tkt_exe_13": {
       "expected_decision": "agir",
-      "required_evidence": ["getAnalysis", "getBaseline"],
+      "decision_rationale": "O usuário pede análise especializada, possui action_low e o atraso com desvio real sustenta a solicitação.",
+      "success_criteria": ["Confirma pendência e baseline e solicita especialista com justificativa."],
+      "expected_actions": ["requestSpecialistAnalysis"],
+      "required_evidence_groups": [["getAnalysis", "listAnalyses"], ["getBaseline"]],
       "required_preconditions": [
         {"fact_id": "baseline_state", "description": "Baseline estabelecido", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["established"]}
       ]
     },
-    "case_tkt_exe_14": {"expected_decision": "agir", "required_evidence": ["getAsset"]},
-    "case_tkt_exe_15": {
+    "case_tkt_exe_14": {
       "expected_decision": "agir",
-      "required_evidence": ["getAnalysis", "getModel"],
+      "decision_rationale": "O usuário autorizado solicita alteração explícita de criticidade; deve ser confirmada e executada.",
+      "success_criteria": ["Confirma a criticidade atual e a permissão, executa a alteração com justificativa operacional e confirma o aceite retornado (accepted/action_id), sem afirmar que o novo valor já está vigente."],
+      "expected_actions": ["updateAssetConfig"],
+      "required_evidence_groups": [["getAsset"]]
+    },
+    "case_tkt_exe_15": {
+      "expected_decision": "orientar",
+      "decision_rationale": "O falso positivo ocorreu sobre baseline invalidado; um caso não prova falha sistemática nem justifica retreinamento global.",
+      "success_criteria": ["Recusa retreinamento, explica a baseline inválida e pede nova baseline ou mais evidências."],
+      "forbidden_actions": ["requestRetraining"],
+      "required_evidence_groups": [["getAnalysis", "listAnalyses"], ["getBaseline"], ["getModel"]],
+      "expected_path": [
+        {"tool": "getAnalysis", "args_contains": {"analysisId": "an_9903"}},
+        {"tool": "listAnalyses", "args_contains": {"assetId": "asset_S420"}},
+        {"tool": "getBaseline", "args_contains": {"assetId": "asset_S420"}},
+        {"tool": "getModel", "args_contains": {"modelId": "mdl_vib_v3"}}
+      ],
       "required_preconditions": [
-        {"fact_id": "baseline_state", "description": "Falso positivo sobre baseline invalidado", "sources": ["getAnalysis"], "field_paths": ["data.baseline_state_at_detection"], "expected_values": ["invalidated"]}
+        {"fact_id": "baseline_state", "description": "Falso positivo sobre baseline invalidado", "sources": ["getAnalysis", "getBaseline"], "field_paths": ["data.baseline_state_at_detection", "data.state"], "expected_values": ["invalidated"]}
       ]
     }
   }

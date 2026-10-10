@@ -20,6 +20,10 @@ from src.core.ids import task_id
 
 __all__ = [
     "E1_SEEDS",
+    "EXPANSION_ARCHITECTURE",
+    "EXPANSION_SEED",
+    "EXPANSION_ARMS",
+    "plan_expansion",
     "E1_REPETITIONS",
     "E1_ARCHITECTURES",
     "E2_POLICIES",
@@ -152,3 +156,53 @@ def plan_core(
     H2; se a cota acabar, o que se perde é resolução de E1, não a hipótese inteira.
     """
     return plan_e2(adversarial_cases, run_id=run_id) + plan_e1(base_cases, run_id=run_id)
+
+
+#: A suíte de expansão mede **cobertura**, não hipótese: um agente, um seed, uma
+#: repetição por caso. Variar arquitetura ou degradação aqui misturaria a pergunta
+#: "o agente generaliza para situações que os 17 não cobrem?" com as perguntas de
+#: H1 e H2, que têm desenho próprio e são respondidas sobre os casos base.
+EXPANSION_ARCHITECTURE: Architecture = "mono"
+EXPANSION_SEED = "complete"
+
+#: Braços da suíte de expansão. `controle` é a condição sem portão; os outros dois são as
+#: variantes pré-registradas do `EvidenceGate`, declaradas antes de qualquer medição.
+EXPANSION_ARMS: tuple[str, ...] = ("controle", "portao_global", "portao_por_ativo")
+
+
+def plan_expansion(
+    cases: tuple[GoldenCase, ...] | list[GoldenCase],
+    *,
+    run_id: str,
+    architecture: Architecture = EXPANSION_ARCHITECTURE,
+    seed: str = EXPANSION_SEED,
+    repetitions: int = 1,
+    arm: str = "controle",
+) -> list[Task]:
+    """Uma execução por caso da suíte de expansão.
+
+    Não entra nas estatísticas de H1/H2: o rótulo destes casos é derivado da política,
+    e somar evidência derivada à evidência externa dos 17 inflaria o n sem aumentar a
+    informação. O que esta rodada responde é outra coisa — se o comportamento correto
+    nos casos curados se sustenta fora deles.
+    """
+    if not cases:
+        raise ContractError("a suíte de expansão exige ao menos um caso")
+    if arm not in EXPANSION_ARMS:
+        raise ContractError(f"braço desconhecido para a expansão: {arm}")
+    return [
+        Task(
+            task_id=task_id(run_id, case.case_id, architecture, seed, repetition, arm=arm),
+            kind="experiment",
+            case_id=case.case_id,
+            architecture=architecture,
+            priority=EXPERIMENT_PRIORITY,
+            source="cli",
+            run_id=run_id,
+            seed=seed,
+            repetition=repetition,
+            arm=arm,
+        )
+        for repetition in range(repetitions)
+        for case in cases
+    ]

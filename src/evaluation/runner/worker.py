@@ -80,9 +80,14 @@ class Worker:
             case = self.load_case(task)
             self.isolation_guard.check(case)
             architecture = self.architecture_for(task)
+            metadata = self.metadata_for(task)
             context = RunContext(
                 execution_id=execution_id,
                 task_id=task.task_id,
+                # `experiment_id` é campo próprio do RunContext e vinha sempre `None`:
+                # o worker montava o metadata e nunca o repassava. Sem ele o trace não
+                # diz a que experimento pertence, e a rodada deixa de ser reproduzível.
+                experiment_id=metadata.get("experiment_id"),
                 run_id=task.run_id,
                 arm=task.arm,
                 seed=task.seed,
@@ -90,7 +95,7 @@ class Worker:
                 dry_run=self.dry_run_for(task),
                 confirmation_policy=self.confirmation_policy,
                 confirmation_grants=self.confirmation_grants_for(task),
-                metadata=self.metadata_for(task),
+                metadata=metadata,
             )
             with self.isolation_guard.protect_filesystem():
                 trace = await architecture.run(case, context)
